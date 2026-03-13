@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <pthread.h>
+#include <unistd.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 //Package: Metagenomic Complex Sequence Scanning Tool (MetaCSST)                             //
