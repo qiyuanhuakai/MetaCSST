@@ -1,0 +1,2 @@
+main_modern.o: src/main_modern.cpp src/ghmm_modern.h src/fun_modern.h
+sub_modern.o: src/sub_modern.cpp src/ghmm_modern.h src/fun_modern.h
