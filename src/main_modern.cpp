@@ -10,6 +10,7 @@
 #include <memory>
 #include <sstream>
 #include <iomanip>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
@@ -20,8 +21,9 @@ namespace fs = std::filesystem;
 //Department: Department of Bioinformatics and Biostatistics, Shanghai Jiao Tong University  //
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "ghmm_modern.h"
-#include "fun_modern.h"
+#include "ghmm_modern.hpp"
+#include "fun_modern.hpp"
+#include "config_modern.hpp"
 using namespace std;
 
 /*
@@ -56,7 +58,7 @@ struct arg {
 };
 
 void scanDGR(arg& argument); //scan the unknown sequence using the model
-DGR buildDGR(ifstream& config); //build the DGR according to the config file
+DGR buildDGRFromPath(const string& config_path);
 
 int main(int argc,char* argv[]){
   if(argc < 3){
@@ -65,7 +67,7 @@ int main(int argc,char* argv[]){
   }
   else{
     int num_threads = 1; //thread number
-    ifstream config; //config file
+    string config_path;
     string search; //unknown sequences file to scan
     string dir = "out_metacsst"; //out directory
     
@@ -73,7 +75,7 @@ int main(int argc,char* argv[]){
       if(strcmp(argv[i], "-thread") == 0 && i + 1 < argc)
         num_threads = atoi(argv[i + 1]);
       else if(strcmp(argv[i], "-build") == 0 && i + 1 < argc)
-        config.open(argv[i + 1]);
+        config_path = argv[i + 1];
       else if(strcmp(argv[i], "-in") == 0 && i + 1 < argc)
         search = argv[i + 1];
       else if(strcmp(argv[i], "-out") == 0 && i + 1 < argc)
@@ -84,7 +86,7 @@ int main(int argc,char* argv[]){
       }
     }
     
-    if(config.is_open()){
+    if(!config_path.empty()){
 
       /*If the out directory exists,it will be covered*/
       if(fs::exists(dir)){
@@ -100,7 +102,13 @@ int main(int argc,char* argv[]){
       /*out file:final result*/
       string out = dir + "/raw.gtf";
 
-      DGR dgr = buildDGR(config);
+      DGR dgr;
+      try {
+        dgr = buildDGRFromPath(config_path);
+      } catch (const std::exception& ex) {
+        cerr << "Config error: " << ex.what() << endl;
+        return 1;
+      }
       //build DGR model accoring the config file
       SCAN dgrScan; //a parameter used in the multi-thread scaning
       dgrScan.init(dgr.TR, dgr.VR, dgr.RT, 10000);
@@ -184,37 +192,12 @@ int main(int argc,char* argv[]){
 }
 
 
-DGR buildDGR(ifstream& config){
-  /*buildDGR:Reading the arguments from the config file(arg.config) firstly,and then build three GHMM model and a main GHMM model.*/
+DGR buildDGRFromPath(const string& config_path){
+  const auto dgr_cfg = metacsst::config::parse_dgr_motif_groups(config_path);
   DGR dgr;
-
-  int number = 0;
-  int index = 0;
-  string tmp;
-  string name, content;
-  
-  while(getline(config, tmp)){
-    string tmp_new = chomp(tmp);
-    if(tmp_new.find("[RT]") != string::npos)
-      index = 0;
-    else if(tmp_new.find("[TR]") != string::npos)
-      index = 1;
-    else if(tmp_new.find("[VR]") != string::npos)
-      index = 2;
-    else if(tmp_new.find('=') != string::npos){
-      name = array_split(tmp_new, '=', 0);
-      content = array_split(tmp_new, '=', 1);
-      if(index == 0){
-        dgr.RT.init(content);
-      }
-      else if(index == 1)
-        dgr.TR.init(content);
-      else if(index == 2)
-        dgr.VR.init(content);
-    }
-  }
-  config.close();
-  
+  dgr.TR.init_groups(dgr_cfg.at("TR"));
+  dgr.VR.init_groups(dgr_cfg.at("VR"));
+  dgr.RT.init_groups(dgr_cfg.at("RT"));
   return dgr;
 }
 

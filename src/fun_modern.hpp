@@ -1,5 +1,5 @@
-#ifndef FUN_MODERN_H
-#define FUN_MODERN_H
+#ifndef FUN_MODERN_HPP
+#define FUN_MODERN_HPP
 
 #include <iostream>
 #include <fstream>
@@ -336,12 +336,12 @@ inline std::string arg_name(const std::string& name) {
  * @param arg Program name
  */
 inline void usage(const std::string& arg) {
-    std::cout << "Usage: " << arg << " -build arg.config [Options]\n\n"
+    std::cout << "Usage: " << arg << " -build config.json|config.toml|config.yaml|config.yml [Options]\n\n"
               << "Options\n\n"
               << "-build : Config file to build model\n"
               << "[-thread] : Number of threads, [int], default 1\n"
               << "[-in] : Fasta format file, in which patterns are searched, build a HMM only if not given, [string]\n"
-              << "[-out] : OUT Directory, [string], default 'sbcsst_out'\n"
+              << "[-out] : OUT Directory, [string], default 'out_metacsst'\n"
               << "[-h] : GHmmMotifScan User Manual\n";
 }
 
@@ -457,4 +457,4 @@ using metacsst::usage;
 using metacsst::swap_state;
 using metacsst::q_sort_state;
 
-#endif // FUN_MODERN_H
+#endif

@@ -1,3 +1,4 @@
 .gitnexus
 test*
 __pycache__
+*.fxi

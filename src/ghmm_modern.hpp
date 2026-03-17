@@ -1,5 +1,5 @@
-#ifndef GHMM_MODERN_H
-#define GHMM_MODERN_H
+#ifndef GHMM_MODERN_HPP
+#define GHMM_MODERN_HPP
 
 #include <iostream>
 #include <fstream>
@@ -21,7 +21,8 @@
 //Department: Department of Bioinformatics and Biostatistics, Shanghai Jiao Tong University  //
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "fun_modern.h"
+#include "fun_modern.hpp"
+#include "config_modern.hpp"
 using namespace std;
 
 struct pattern {
@@ -699,38 +700,27 @@ class HMM_class { //clusters of GHMM model
   explicit HMM_class(const char *config): _number(0) { init(string(config)); }
 
   void init(const string& config); //initialization,based on the config file
+  void init_groups(const std::vector<metacsst::config::OrderedKeyValues>& motif_groups);
   void init(char *config){ init(string(config)); }
   void print(char *dir);
   struct OUT *scanSeq(char *seq); //scaning a new sequence
 };
 
-/*build class of HMM models according to the input config file*/
-void HMM_class::init(const string& config){
-  ifstream CONFIG(config); //config file
-  if(!CONFIG.is_open()){
-    _number = 0;
-    hmm.clear();
-    return;
-  }
-
+void HMM_class::init_groups(const std::vector<metacsst::config::OrderedKeyValues>& motif_groups){
   vector<vector<string>> argv_groups;
-  string tmp;
-
-  while(getline(CONFIG,tmp)){
-    string tmp_new = chomp(tmp);
-    if(!tmp_new.empty() && tmp_new.back() == '\r')
-      tmp_new.pop_back();
-
-    if(tmp_new.find("[motif]") != string::npos){
-      //[motif] means a new motif,and a new GHMM model will be built
-      argv_groups.push_back(vector<string>());
-      argv_groups.back().push_back("hmm");
+  argv_groups.reserve(motif_groups.size());
+  for (const auto& group : motif_groups) {
+    vector<string> argv;
+    argv.push_back("hmm");
+    for (const auto& kv : group) {
+      const string arg = arg_name(kv.first);
+      if (!arg.empty()) {
+        argv.push_back(arg);
+        argv.push_back(kv.second);
+      }
     }
-    else if(tmp_new.find('=') != string::npos && !argv_groups.empty()){
-      string name = array_split(tmp_new,'=',0);
-      string content = array_split(tmp_new,'=',1);
-      argv_groups.back().push_back(arg_name(name));
-      argv_groups.back().push_back(content);
+    if (argv.size() > 1) {
+      argv_groups.push_back(std::move(argv));
     }
   }
 
@@ -740,11 +730,34 @@ void HMM_class::init(const string& config){
 
   for(int i=0;i<_number;i++){
     vector<char*> argv_ptr(argv_groups[i].size(),nullptr);
-    for(size_t j=0;j<argv_groups[i].size();j++)
+    for(size_t j=0;j<argv_groups[i].size();j++) {
       argv_ptr[j] = argv_groups[i][j].data();
+    }
     hmm.push_back(buildHMM(static_cast<int>(argv_ptr.size()),argv_ptr.data()));
-    //foreach set of arguments,build a corresponding HMM model
   }
+}
+
+/*build class of HMM models according to the input config file*/
+void HMM_class::init(const string& config){
+  try {
+    const auto dgr_cfg = metacsst::config::parse_dgr_motif_groups(config);
+    std::vector<metacsst::config::OrderedKeyValues> merged;
+    for (const char* key : {"TR", "VR", "RT"}) {
+      const auto it = dgr_cfg.find(key);
+      if (it != dgr_cfg.end()) {
+        merged.insert(merged.end(), it->second.begin(), it->second.end());
+      }
+    }
+    if (merged.empty()) {
+      throw std::runtime_error("No motif groups found in config: " + config);
+    }
+    init_groups(merged);
+    return;
+  } catch (const std::exception&) {
+  }
+
+  const auto motif_groups = metacsst::config::parse_motif_config(config);
+  init_groups(motif_groups);
 }
 
 void HMM_class::print(char *dir){
@@ -1004,4 +1017,4 @@ struct OUT *SCAN::scanSeq(char *seq){
   return result;
 }
 
-#endif // GHMM_MODERN_H
+#endif

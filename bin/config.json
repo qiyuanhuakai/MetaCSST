@@ -1,0 +1,86 @@
+{
+  "TR": {
+    "motifs": [
+      {
+        "motif": "align/TR-class1.align",
+        "cov": 0.9,
+        "len": 7,
+        "score": 0.3,
+        "ratio": 0.9,
+        "gap": 20
+      },
+      {
+        "motif": "align/TR-class2.align",
+        "cov": 0.9,
+        "len": 7,
+        "score": 0.1,
+        "ratio": 1,
+        "gap": 20
+      },
+      {
+        "motif": "align/TR-class3.align",
+        "cov": 0.9,
+        "len": 7,
+        "score": 0.3,
+        "ratio": 0.6,
+        "gap": 20
+      }
+    ]
+  },
+  "VR": {
+    "motifs": [
+      {
+        "motif": "align/VR-class1.align",
+        "cov": 0.9,
+        "len": 7,
+        "score": 0.3,
+        "ratio": 0.4,
+        "gap": 20
+      },
+      {
+        "motif": "align/VR-class2.align",
+        "cov": 0.9,
+        "len": 7,
+        "score": 1,
+        "ratio": 1,
+        "gap": 20
+      },
+      {
+        "motif": "align/VR-class3.align",
+        "cov": 0.9,
+        "len": 7,
+        "score": 1,
+        "ratio": 1,
+        "gap": 20
+      }
+    ]
+  },
+  "RT": {
+    "motifs": [
+      {
+        "motif": "align/RT-class1.align",
+        "cov": 0.9,
+        "len": 20,
+        "score": 0.3,
+        "ratio": 0.9,
+        "gap": 400
+      },
+      {
+        "motif": "align/RT-class2.align",
+        "cov": 0.9,
+        "len": 25,
+        "score": 0.4,
+        "ratio": 0.9,
+        "gap": 400
+      },
+      {
+        "motif": "align/RT-class3.align",
+        "cov": 0.9,
+        "len": 20,
+        "score": 0.5,
+        "ratio": 0.9,
+        "gap": 400
+      }
+    ]
+  }
+}

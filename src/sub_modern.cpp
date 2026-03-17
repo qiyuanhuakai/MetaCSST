@@ -10,6 +10,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
+#include <stdexcept>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 //Package: Metagenomic Complex Sequence Scanning Tool (MetaCSST)                             //
@@ -18,7 +19,7 @@
 //Department: Department of Bioinformatics and Biostatistics, Shanghai Jiao Tong University  //
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "ghmm_modern.h"
+#include "ghmm_modern.hpp"
 using namespace std;
 namespace fs = std::filesystem;
 
@@ -86,7 +87,12 @@ int main(int argc,char* argv[]){
       std::string out = dir + "/out.txt";
 
       HMM_class hmm_class;
-      hmm_class.init(config);
+      try {
+        hmm_class.init(config);
+      } catch (const std::exception& ex) {
+        cerr << "Config error: " << ex.what() << endl;
+        return 1;
+      }
       hmm_class.print(const_cast<char*>(dir.c_str()));
 
       if(!search.empty()){
