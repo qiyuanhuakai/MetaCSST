@@ -3,13 +3,11 @@
 
 #include <iostream>
 #include <fstream>
-#include <cstring>
 #include <vector>
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <cctype>
-#include <cstring>
 #include <sstream>
 #include <unordered_map>
 
@@ -159,8 +157,6 @@ inline float cuttof(float** score, int number, float ratio) {
  * @return Number of split files created
  */
 inline int split(const std::string& file, int number, const std::string& dir) {
-    using namespace std::filesystem;
-    
     int num = 0;
     if (number == 1) return num;
     
@@ -186,7 +182,7 @@ inline int split(const std::string& file, int number, const std::string& dir) {
     }
     
     // Create output directory if it doesn't exist
-    create_directories(dir);
+    std::filesystem::create_directories(dir);
     
     // Read file and split manually (no system() call)
     infile.open(file);
@@ -345,91 +341,6 @@ inline void usage(const std::string& arg) {
               << "[-h] : GHmmMotifScan User Manual\n";
 }
 
-// Legacy C-string overloads for backward compatibility during transition
-inline char* arg_name(char* name) {
-    static thread_local char buffer[20];
-    std::string result = arg_name(std::string(name));
-    std::strncpy(buffer, result.c_str(), sizeof(buffer) - 1);
-    buffer[sizeof(buffer) - 1] = '\0';
-    return buffer;
-}
-
-inline void usage(char* arg) {
-    usage(std::string(arg));
-}
-
-inline int judge(char* p) {
-    return judge(std::string(p));
-}
-
-inline char* chomp(char* s) {
-    std::string str(s);
-    chomp(str);
-    // Note: This modifies the original string in place
-    std::size_t len = str.length();
-    s[len] = '\0';
-    return s;
-}
-
-inline char* array_split(char* s, char sep, int col) {
-    static thread_local char buffer[constants::D];
-    std::string result = array_split(std::string(s), sep, col);
-    std::strncpy(buffer, result.c_str(), sizeof(buffer) - 1);
-    buffer[sizeof(buffer) - 1] = '\0';
-    return buffer;
-}
-
-inline char* complementary(char* s) {
-    static thread_local char buffer[constants::N];
-    std::string result = complementary(std::string(s));
-    std::strncpy(buffer, result.c_str(), sizeof(buffer) - 1);
-    buffer[sizeof(buffer) - 1] = '\0';
-    return buffer;
-}
-
-inline int count(char* s, char sep) {
-    return count(std::string(s), sep);
-}
-
-inline char* substr(char* s, int start, int num) {
-    static thread_local char buffer[constants::N];
-    std::string result = substr(std::string(s), start, num);
-    std::strncpy(buffer, result.c_str(), sizeof(buffer) - 1);
-    buffer[sizeof(buffer) - 1] = '\0';
-    return buffer;
-}
-
-inline int split(char* file, int number, char* dir) {
-    return split(std::string(file), number, std::string(dir));
-}
-
-// Swapping function for state arrays (used by q_sort_state)
-inline void swap_state(int start[], int end[], float score[], int str[], int m, int n) {
-    std::swap(start[m], start[n]);
-    std::swap(end[m], end[n]);
-    std::swap(str[m], str[n]);
-    std::swap(score[m], score[n]);
-}
-
-// Quick sort for state arrays
-inline void q_sort_state(int start[], int end[], float score[], int str[], int left, int right) {
-    if (left >= right) return;
-    
-    // Use middle element as pivot
-    swap_state(start, end, score, str, left, (left + right) / 2);
-    int last = left;
-    
-    for (int i = left + 1; i <= right; i++) {
-        if (start[i] < start[left]) {
-            swap_state(start, end, score, str, ++last, i);
-        }
-    }
-    
-    swap_state(start, end, score, str, left, last);
-    q_sort_state(start, end, score, str, left, last - 1);
-    q_sort_state(start, end, score, str, last + 1, right);
-}
-
 } // namespace metacsst
 
 // Pull constants into global namespace for backward compatibility
@@ -454,7 +365,5 @@ using metacsst::tri_max;
 using metacsst::tri_min;
 using metacsst::arg_name;
 using metacsst::usage;
-using metacsst::swap_state;
-using metacsst::q_sort_state;
 
 #endif

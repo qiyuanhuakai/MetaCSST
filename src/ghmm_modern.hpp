@@ -7,12 +7,14 @@
 #include <cstdlib>
 #include <cmath>
 #include <ctime>
-#include <cstdio>
 #include <vector>
 #include <array>
 #include <string>
+#include <string_view>
 #include <algorithm>
 #include <iomanip>
+#include <filesystem>
+#include <memory>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 //Package: Metagenomic Complex Sequence Scanning Tool (MetaCSST)                             //
@@ -23,7 +25,12 @@
 
 #include "fun_modern.hpp"
 #include "config_modern.hpp"
-using namespace std;
+using std::array;
+using std::exception;
+using std::ifstream;
+using std::string;
+using std::to_string;
+using std::vector;
 
 struct pattern {
   int length; //pattern box length
@@ -45,6 +52,13 @@ struct box { //every box is a state in the Hidden Markov Model
   vector<vector<float>> score; //scoring matrix of the state box
 };
 
+struct MatchState {
+  int start;
+  int end;
+  float score;
+  int strand;
+};
+
 struct sub_hmm { //sub HMM strctures ,such as TR/VR/RT
   int start; //start site of the sub HMM in the input sequence
   int end; //end site
@@ -54,12 +68,12 @@ struct sub_hmm { //sub HMM strctures ,such as TR/VR/RT
 
 struct OUT { //scaning result,for sub HMM(TR/VR/RT) or the total DGR
   int number; //matchSeq number
-  float score[S]; //score of the matches
-  int start[S]; //start site
-  int end[S]; //end site
-  int string[S]; //string of the match,1::'+' or 2::'-'
+  std::array<float, S> score{}; //score of the matches
+  std::array<int, S> start{}; //start site
+  std::array<int, S> end{}; //end site
+  std::array<int, S> string{}; //string of the match,1::'+' or 2::'-'
 
-  int type[S]; //used only for scaning fot total DGR;1->TR,2->VR,3->RT;
+  std::array<int, S> type{}; //used only for scaning fot total DGR;1->TR,2->VR,3->RT;
   int total_start; //used only for scaning for DGR
   int total_end; //used only for scaning for DGR
   float total_score; //used only for scaning for DGR
@@ -101,10 +115,14 @@ class HMM{
             int gap_length,
             int state_length,
             float seq_score_cuttof);
-  void print(char *dir);
-  struct OUT *scanSeqSingle(char *seq); //only scan for positive string
-  struct OUT *scanSeqFull(char *seq); //scan for the both two directions
+  void print(const std::string& dir);
+  std::unique_ptr<OUT> scanSeqSingle(std::string_view seq); //only scan for positive string
+  std::unique_ptr<OUT> scanSeqFull(std::string_view seq); //scan for the both two directions
 };
+
+inline bool arg_equals(std::string_view arg, std::string_view option) {
+  return arg == option;
+}
 
 void HMM::init(const vector<vector<float>>& transition,
                const vector<pattern>& metrix,
@@ -156,81 +174,77 @@ void HMM::init(const vector<vector<float>>& transition,
   }
 }
 
-void HMM::print(char *dir){
+void HMM::print(const std::string& dir){
 
-  char align[1000],score_file[1000];
-  sprintf(align,"%s/align.txt",dir);
-  sprintf(score_file,"%s/score.txt",dir);
+  const auto align_path = std::filesystem::path(dir) / "align.txt";
+  const auto score_path = std::filesystem::path(dir) / "score.txt";
 
-  FILE *fp1 = fopen(align,"a");
-  FILE *fp2 = fopen(score_file,"a");
-  if(fp1 == NULL || fp2 == NULL){
-    if(fp1 != NULL) fclose(fp1);
-    if(fp2 != NULL) fclose(fp2);
+  std::ofstream fp1(align_path, std::ios::app);
+  std::ofstream fp2(score_path, std::ios::app);
+  if(!fp1 || !fp2){
     return;
   }
 
   for(int i=0;i<size;i++)
     if(state[i].length >= len){
-      fprintf(fp1,"align matrix:\n");
+      fp1 << "align matrix:\n";
       for(int j=0;j<4;j++){
         switch(j){
-        case 0:fprintf(fp1,"A\t");break;
-        case 1:fprintf(fp1,"T\t");break;
-        case 2:fprintf(fp1,"C\t");break;
-        case 3:fprintf(fp1,"G\t");break;
+        case 0:fp1 << "A\t";break;
+        case 1:fp1 << "T\t";break;
+        case 2:fp1 << "C\t";break;
+        case 3:fp1 << "G\t";break;
         }
 
         for(int k=0;k<state[i].length;k++)
           if(k == state[i].length -1)
-            fprintf(fp1,"%d\n",state[i].align[j][k]);
+            fp1 << state[i].align[j][k] << '\n';
           else
-            fprintf(fp1,"%d\t",state[i].align[j][k]);
+            fp1 << state[i].align[j][k] << '\t';
       }
-      fprintf(fp2,"scoring matrix:\n");
+      fp2 << "scoring matrix:\n";
       for(int j=0;j<4;j++){
         switch(j){
-        case 0:fprintf(fp2,"A\t");break;
-        case 1:fprintf(fp2,"T\t");break;
-        case 2:fprintf(fp2,"C\t");break;
-        case 3:fprintf(fp2,"G\t");break;
+        case 0:fp2 << "A\t";break;
+        case 1:fp2 << "T\t";break;
+        case 2:fp2 << "C\t";break;
+        case 3:fp2 << "G\t";break;
         }
 
         for(int k=0;k<state[i].length;k++)
           if(k == state[i].length -1)
-            fprintf(fp2,"%0.2f\n",state[i].score[j][k]);
+            fp2 << std::fixed << std::setprecision(2) << state[i].score[j][k] << '\n';
           else
-            fprintf(fp2,"%0.2f\t",state[i].score[j][k]);
+            fp2 << std::fixed << std::setprecision(2) << state[i].score[j][k] << '\t';
       }
     }
 
-  fprintf(fp2,"Start Probabilities\t");
+  fp2 << "Start Probabilities\t";
   for(int i=0;i<size;i++)
     if(state[i].length >= len)
-      fprintf(fp2,"%0.2f\t",start[i]);
-  fprintf(fp2,"\nEnding Probabilities\t");
+      fp2 << std::fixed << std::setprecision(2) << start[i] << '\t';
+  fp2 << "\nEnding Probabilities\t";
   for(int i=0;i<size;i++)
     if(state[i].length >= len)
-      fprintf(fp2,"%0.2f\t",end[i]);
-  fprintf(fp2,"\nTrasnition Probability Matrix\n");
+      fp2 << std::fixed << std::setprecision(2) << end[i] << '\t';
+  fp2 << "\nTrasnition Probability Matrix\n";
   for(int i=0;i<size;i++)
     if(state[i].length >= len){
       for(int j=0;j<size;j++)
         if(state[j].length >= len)
-          fprintf(fp2,"%0.2f\t",trans[i][j]);
-      fprintf(fp2,"\n");
+          fp2 << std::fixed << std::setprecision(2) << trans[i][j] << '\t';
+      fp2 << '\n';
     }
 
-  fprintf(fp2,"Window size:%d\n",window);
-  fprintf(fp2,"Gap length:%d\n",gap);
-  fprintf(fp2,"Match score cuttof:%0.2f\n",score_cuttof);
-  fprintf(fp1,"++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
-  fprintf(fp2,"++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
-  fclose(fp1);fclose(fp2);
+  fp2 << "Window size:" << window << '\n';
+  fp2 << "Gap length:" << gap << '\n';
+  fp2 << "Match score cuttof:" << std::fixed << std::setprecision(2) << score_cuttof << '\n';
+  fp1 << "++++++++++++++++++++++++++++++++++++++++++++++++++++++\n";
+  fp2 << "++++++++++++++++++++++++++++++++++++++++++++++++++++++\n";
 }
 
 
-struct OUT* HMM::scanSeqSingle(char *seq){
+std::unique_ptr<OUT> HMM::scanSeqSingle(std::string_view seq){
   /*workflow of scaning for TR,VR or RT:
     (1)foreach sub state,set down the matching subSeqs(position as well as score).
     (2)according to the gap length,the whole sequence will be splitted to some search space.
@@ -239,10 +253,10 @@ struct OUT* HMM::scanSeqSingle(char *seq){
     (4)save all the result satisfying the requirements:score(path) > score_cuttof
    */
 
-  struct OUT *result=(struct OUT *)calloc(1,sizeof(struct OUT));
+  auto result = std::make_unique<OUT>();
   result->number=0;
 
-  int S2 = static_cast<int>(strlen(seq));
+  const int S2 = static_cast<int>(seq.size());
 
   vector<int> state_pos(S2,-1);
   vector<int> state_index(S2,-1);
@@ -253,7 +267,7 @@ struct OUT* HMM::scanSeqSingle(char *seq){
     if there is a sequence matched,then skip length will be the length of this motif rather then 1.This methos is able to accelerate the process,but may miss the best match in the mean while,which reduces the whole score,leading to a wrong result.
   */
 
-  if(static_cast<int>(strlen(seq)) > window){
+  if(S2 > window){
     for(int i=0;i<S2-window-1;){ //scan the sequence for every stat,set down the position as well as matching score
       int index=0;
       //index:in this position,exists a state match? 0:no  1:yes
@@ -262,7 +276,7 @@ struct OUT* HMM::scanSeqSingle(char *seq){
           float tmp=0.0f;
 
           for(int k=0;k < state[j].length;k++){
-            switch(seq[i+k]){
+            switch(seq[static_cast<std::size_t>(i+k)]){
             case 'A':tmp += state[j].score[0][k];break;
             case 'T':tmp += state[j].score[1][k];break;
             case 'C':tmp += state[j].score[2][k];break;
@@ -367,18 +381,16 @@ struct OUT* HMM::scanSeqSingle(char *seq){
   return result;
 }
 
-struct OUT* HMM::scanSeqFull(char *seq){
-  struct OUT *result=(struct OUT *)calloc(1,sizeof(struct OUT));
+std::unique_ptr<OUT> HMM::scanSeqFull(std::string_view seq){
+  auto result = std::make_unique<OUT>();
   result->number=0;
 
-  struct OUT *result1 = scanSeqSingle(seq); //positive chain
+  auto result1 = scanSeqSingle(seq); //positive chain
 
   string seq_complementary = metacsst::complementary(string(seq));
-  char* seq_comp_cstr = strdup(seq_complementary.c_str());
-  struct OUT *result2 = scanSeqSingle(seq_comp_cstr);
-  free(seq_comp_cstr);
+  auto result2 = scanSeqSingle(seq_complementary);
 
-  int length = static_cast<int>(strlen(seq));
+  const int length = static_cast<int>(seq.size());
   int num=0;
   if(result1->number > 0)
     for(int i=0;i<result1->number;i++,num++){
@@ -397,11 +409,10 @@ struct OUT* HMM::scanSeqFull(char *seq){
     }
 
   result->number = num;
-  free(result1);free(result2);
   return result;
 }
 
-HMM buildHMM(int ARGC,char* ARGV[]){
+HMM buildHMM(const std::vector<std::string>& args){
   int L=0; //sequence length in the multiAlignment result
   float cov=0.9f; //coverage cuttof in every position to make a pattern box
   int box_len_cuttof=7; //pattern box length cuttof
@@ -414,32 +425,32 @@ HMM buildHMM(int ARGC,char* ARGV[]){
 
   HMM hmm;
 
-  if(ARGC < 2){
-    usage(ARGV[0]);
+  if(args.size() < 2){
+    usage(args.empty() ? std::string("hmm") : args.front());
   }
   else{
     int i,j,k;
     string in_path;
-    for(i=0;i<ARGC;i++)
-      if(strcmp(ARGV[i],"-build") == 0 && i+1<ARGC)
-        in_path = ARGV[i+1];
-      else if(strcmp(ARGV[i],"-cov") == 0 && i+1<ARGC)
-        cov = static_cast<float>(atof(ARGV[i+1]));
-      else if (strcmp(ARGV[i],"-len") == 0 && i+1<ARGC)
-        box_len_cuttof = atoi(ARGV[i+1]);
-      else if (strcmp(ARGV[i],"-score") == 0 && i+1<ARGC)
-        state_score = static_cast<float>(atof(ARGV[i+1]));
-      else if (strcmp(ARGV[i],"-ratio") == 0 && i+1<ARGC)
-        ratio = static_cast<float>(atof(ARGV[i+1]));
-      else if (strcmp(ARGV[i],"-gap") == 0 && i+1<ARGC)
-        gap = atoi(ARGV[i+1]);
-      else if (strcmp(ARGV[i],"-ic") == 0 && i+1<ARGC)
-        ic = static_cast<float>(atof(ARGV[i+1]));
-      else if(strcmp(ARGV[i],"-h") == 0)
-        usage(ARGV[0]);
+    for(i=0;i<static_cast<int>(args.size());i++)
+      if(arg_equals(args[static_cast<std::size_t>(i)],"-build") && i+1<static_cast<int>(args.size()))
+        in_path = args[static_cast<std::size_t>(i+1)];
+      else if(arg_equals(args[static_cast<std::size_t>(i)],"-cov") && i+1<static_cast<int>(args.size()))
+        cov = std::stof(args[static_cast<std::size_t>(i+1)]);
+      else if (arg_equals(args[static_cast<std::size_t>(i)],"-len") && i+1<static_cast<int>(args.size()))
+        box_len_cuttof = std::stoi(args[static_cast<std::size_t>(i+1)]);
+      else if (arg_equals(args[static_cast<std::size_t>(i)],"-score") && i+1<static_cast<int>(args.size()))
+        state_score = std::stof(args[static_cast<std::size_t>(i+1)]);
+      else if (arg_equals(args[static_cast<std::size_t>(i)],"-ratio") && i+1<static_cast<int>(args.size()))
+        ratio = std::stof(args[static_cast<std::size_t>(i+1)]);
+      else if (arg_equals(args[static_cast<std::size_t>(i)],"-gap") && i+1<static_cast<int>(args.size()))
+        gap = std::stoi(args[static_cast<std::size_t>(i+1)]);
+      else if (arg_equals(args[static_cast<std::size_t>(i)],"-ic") && i+1<static_cast<int>(args.size()))
+        ic = std::stof(args[static_cast<std::size_t>(i+1)]);
+      else if(arg_equals(args[static_cast<std::size_t>(i)],"-h"))
+        usage(args.front());
 
     if(in_path.empty() || cov <= 0 || cov >1){
-      usage(ARGV[0]);
+      usage(args.front());
       return hmm;
     }
     else{
@@ -447,7 +458,7 @@ HMM buildHMM(int ARGC,char* ARGV[]){
 
       ifstream in_first(in_path);
       if(!in_first.is_open()){
-        usage(ARGV[0]);
+        usage(args.front());
         return hmm;
       }
 
@@ -523,15 +534,15 @@ HMM buildHMM(int ARGC,char* ARGV[]){
             score[i+1][j] = static_cast<float>(log(count[i][j]/(priori[i]*sum[j]))*sum[j]/number); //formula to calculate the score of every position
 
       vector<pattern> scan(M);  //store some subPattern in the whole scoring matrix
-      for(i=0;i<M;i++){  //initialization of the pattern boxes
-        scan[i].length=0;
-        scan[i].max=0.0f;
-        scan[i].min=0.0f;
-        scan[i].pos_start=-1;
-        scan[i].pos_end=-1;
-        scan[i].score.assign(4,vector<float>(P,0.0f));
-        scan[i].matrix.assign(4,vector<int>(P,0));
-        scan[i].sum.assign(P,0);
+      for(std::size_t scan_idx = 0; scan_idx < scan.size(); ++scan_idx){
+        scan[scan_idx].length=0;
+        scan[scan_idx].max=0.0f;
+        scan[scan_idx].min=0.0f;
+        scan[scan_idx].pos_start=-1;
+        scan[scan_idx].pos_end=-1;
+        scan[scan_idx].score.assign(4,vector<float>(P,0.0f));
+        scan[scan_idx].matrix.assign(4,vector<int>(P,0));
+        scan[scan_idx].sum.assign(P,0);
       }
 
       for(i=0,j=0,k=0;i<L;i++){
@@ -697,13 +708,11 @@ class HMM_class { //clusters of GHMM model
 
   HMM_class(): _number(0) {}
   explicit HMM_class(const string& config): _number(0) { init(config); }
-  explicit HMM_class(const char *config): _number(0) { init(string(config)); }
 
   void init(const string& config); //initialization,based on the config file
   void init_groups(const std::vector<metacsst::config::OrderedKeyValues>& motif_groups);
-  void init(char *config){ init(string(config)); }
-  void print(char *dir);
-  struct OUT *scanSeq(char *seq); //scaning a new sequence
+  void print(const std::string& dir);
+  std::unique_ptr<OUT> scanSeq(std::string_view seq); //scaning a new sequence
 };
 
 void HMM_class::init_groups(const std::vector<metacsst::config::OrderedKeyValues>& motif_groups){
@@ -729,11 +738,7 @@ void HMM_class::init_groups(const std::vector<metacsst::config::OrderedKeyValues
   hmm.reserve(_number);
 
   for(int i=0;i<_number;i++){
-    vector<char*> argv_ptr(argv_groups[i].size(),nullptr);
-    for(size_t j=0;j<argv_groups[i].size();j++) {
-      argv_ptr[j] = argv_groups[i][j].data();
-    }
-    hmm.push_back(buildHMM(static_cast<int>(argv_ptr.size()),argv_ptr.data()));
+    hmm.push_back(buildHMM(argv_groups[i]));
   }
 }
 
@@ -760,25 +765,22 @@ void HMM_class::init(const string& config){
   init_groups(motif_groups);
 }
 
-void HMM_class::print(char *dir){
+void HMM_class::print(const std::string& dir){
   for(int i=0;i<_number;i++)
     hmm[i].print(dir);
 
-  char align[1000],score_file[1000];
-  sprintf(align,"%s/align.txt",dir);
-  sprintf(score_file,"%s/score.txt",dir);
-  FILE *fp1 = fopen(align,"a");
-  FILE *fp2 = fopen(score_file,"a");
-  if(fp1 != NULL)
-    fprintf(fp1,"######################################################\n");
-  if(fp2 != NULL)
-    fprintf(fp2,"######################################################\n");
-  if(fp1 != NULL) fclose(fp1);
-  if(fp2 != NULL) fclose(fp2);
+  const auto align_path = std::filesystem::path(dir) / "align.txt";
+  const auto score_path = std::filesystem::path(dir) / "score.txt";
+  std::ofstream fp1(align_path, std::ios::app);
+  std::ofstream fp2(score_path, std::ios::app);
+  if(fp1)
+    fp1 << "######################################################\n";
+  if(fp2)
+    fp2 << "######################################################\n";
 }
 
 /*scan the new sequences using the clusters of GHMMs*/
-struct OUT* HMM_class::scanSeq(char *seq){
+std::unique_ptr<OUT> HMM_class::scanSeq(std::string_view seq){
 
 /*WorkFlow:
 1>Every GHMM model is used to scan a new sequence,and reserve all the results
@@ -786,51 +788,51 @@ struct OUT* HMM_class::scanSeq(char *seq){
 3>putout the merged results
 */
 
-  int arr_start[S],arr_end[S];int arr_string[S];
-  float arr_score[S];
+  std::vector<MatchState> matches;
+  matches.reserve(S);
 
-  int num=0;
   /*scaning for all the HMM models and reserve all the result_tmps*/
   for(int i=0;i<_number;i++){
-    struct OUT *result_tmp_sub = hmm[i].scanSeqFull(seq);
+    auto result_tmp_sub = hmm[i].scanSeqFull(seq);
 
     if(result_tmp_sub->number != 0)
       for(int j=0;j<result_tmp_sub->number;j++){
-        arr_start[num] = result_tmp_sub->start[j];
-        arr_end[num] = result_tmp_sub->end[j];
-        arr_score[num] = result_tmp_sub->score[j];
-        arr_string[num] = result_tmp_sub->string[j];
-        num ++;
+        matches.push_back({
+          result_tmp_sub->start[j],
+          result_tmp_sub->end[j],
+          result_tmp_sub->score[j],
+          result_tmp_sub->string[j]
+        });
       }
-    free(result_tmp_sub);
   }
 
-  /*Sort the array according to the start position,using quick sort*/
-  q_sort_state(arr_start,arr_end,arr_score,arr_string,0,num-1);
+  std::sort(matches.begin(), matches.end(), [](const MatchState& lhs, const MatchState& rhs) {
+    return lhs.start < rhs.start;
+  });
 
-  struct OUT *result=(struct OUT *)calloc(1,sizeof(struct OUT));
+  auto result = std::make_unique<OUT>();
   result->number = 0;
 
   int pos = 0;
-  for(int i=0;i<num;i++){
+  for (const auto& match : matches) {
     if(pos == 0){
-      result->start[pos] = arr_start[i];
-      result->end[pos] = arr_end[i];
-      result->score[pos] = arr_score[i];
-      result->string[pos] = arr_string[i];
+      result->start[pos] = match.start;
+      result->end[pos] = match.end;
+      result->score[pos] = match.score;
+      result->string[pos] = match.strand;
       pos++;
       result->number ++;
     }
-    else if(arr_start[i] < result->end[pos-1] && arr_string[i]==result->string[pos-1]){
+    else if(match.start < result->end[pos-1] && match.strand==result->string[pos-1]){
       //overlap and merge
-      result->end[pos-1] = (result->end[pos-1] > arr_end[i])?result->end[pos-1]:arr_end[i];
-      result->score[pos-1] += arr_score[i];
+      result->end[pos-1] = (result->end[pos-1] > match.end)?result->end[pos-1]:match.end;
+      result->score[pos-1] += match.score;
     }
     else{
-      result->start[pos] = arr_start[i];
-      result->end[pos] = arr_end[i];
-      result->score[pos] = arr_score[i];
-      result->string[pos] = arr_string[i];
+      result->start[pos] = match.start;
+      result->end[pos] = match.end;
+      result->score[pos] = match.score;
+      result->string[pos] = match.strand;
       pos++;
       result->number ++;
     }
@@ -853,8 +855,8 @@ class SCAN{ //main HMM model used to scan the unknown sequence
   }
 
   void init(HMM_class init_TR,HMM_class init_VR,HMM_class init_RT,int init_gap);
-  void print(char *dir);
-  struct OUT *scanSeq(char *seq);
+  void print(const std::string& dir);
+  std::unique_ptr<OUT> scanSeq(std::string_view seq);
 };
 
 void SCAN::init(HMM_class init_TR,HMM_class init_VR,HMM_class init_RT,int init_gap){
@@ -862,16 +864,14 @@ void SCAN::init(HMM_class init_TR,HMM_class init_VR,HMM_class init_RT,int init_g
   gap=init_gap;
 }
 
-void SCAN::print(char *dir){
+void SCAN::print(const std::string& dir){
   for(int i=0;i<3;i++)
     state[i].print(dir);
 
-  char score_file[1000];
-  sprintf(score_file,"%s/score.txt",dir);
-  FILE *fp2 = fopen(score_file,"a");
-  if(fp2 != NULL){
-    fprintf(fp2,"Gap Length:%d\n",gap);
-    fclose(fp2);
+  const auto score_path = std::filesystem::path(dir) / "score.txt";
+  std::ofstream fp2(score_path, std::ios::app);
+  if(fp2){
+    fp2 << "Gap Length:" << gap << '\n';
   }
 }
 
@@ -880,8 +880,8 @@ void SCAN::print(char *dir){
   2>split the whole space into some smaller search space according to the distribution of the gap length
   3>recall DGR structure for each search space
 */
-struct OUT *SCAN::scanSeq(char *seq){
-  struct OUT *result=(struct OUT *)calloc(1,sizeof(struct OUT));
+std::unique_ptr<OUT> SCAN::scanSeq(std::string_view seq){
+  auto result = std::make_unique<OUT>();
   result->number = 0;result->index = 0;result->total_score = 0.0f;
   //the final result
 
@@ -890,7 +890,7 @@ struct OUT *SCAN::scanSeq(char *seq){
   Based on the test result, the scaning order is : TR->RT->VR
 */
 
-  struct OUT *scan_sub[3];
+  std::array<std::unique_ptr<OUT>, 3> scan_sub;
 
   scan_sub[0] = state[0].scanSeq(seq);
   if(scan_sub[0]->number >0){ //scaning for TR firstly
@@ -899,19 +899,28 @@ struct OUT *SCAN::scanSeq(char *seq){
     if(scan_sub[2]->number >0){ //scaning for RT secondly
 
       scan_sub[1] = state[1].scanSeq(seq);
-      int number_sub=0,start_sub[S],end_sub[S],type_sub[S];
-      float score_sub[S];int string_sub[S];
+      std::vector<int> start_sub;
+      std::vector<int> end_sub;
+      std::vector<int> type_sub;
+      std::vector<float> score_sub;
+      std::vector<int> string_sub;
+      start_sub.reserve(S);
+      end_sub.reserve(S);
+      type_sub.reserve(S);
+      score_sub.reserve(S);
+      string_sub.reserve(S);
 
       //fetch all the sub matchSequences to some tmp arrayes
       for(int k=0;k<3;k++)
-        for(int i=0,j=number_sub;i<scan_sub[k]->number;i++,j++){
-          start_sub[j] = scan_sub[k]->start[i];
-          end_sub[j] = scan_sub[k]->end[i];
-          score_sub[j] = scan_sub[k]->score[i];
-          string_sub[j] = scan_sub[k]->string[i];
-          type_sub[j] = k+1;
-          number_sub += 1;
+        for(int i=0;i<scan_sub[k]->number;i++){
+          start_sub.push_back(scan_sub[k]->start[i]);
+          end_sub.push_back(scan_sub[k]->end[i]);
+          score_sub.push_back(scan_sub[k]->score[i]);
+          string_sub.push_back(scan_sub[k]->string[i]);
+          type_sub.push_back(k+1);
         }
+
+      const int number_sub = static_cast<int>(start_sub.size());
 
       //sort the array according to the start position
       for(int i=0;i<number_sub-1;i++){
@@ -1009,11 +1018,8 @@ struct OUT *SCAN::scanSeq(char *seq){
         if(product%10 == 0)
           result->index = 1;
       }
-      free(scan_sub[1]);
     }
-    free(scan_sub[2]);
   }
-  free(scan_sub[0]);
   return result;
 }
 

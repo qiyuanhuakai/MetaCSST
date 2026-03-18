@@ -1,198 +1,173 @@
-#include <iostream>
-#include <fstream>
-#include <cstring>
-#include <cstdlib>
-#include <cmath>
-#include <thread>
-#include <vector>
-#include <string>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
 #include <memory>
 #include <sstream>
-#include <iomanip>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <vector>
 
 namespace fs = std::filesystem;
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-//Package: Metagenomic Complex Sequence Scanning Tool (MetaCSST)                             //
-//Developer: Fazhe Yan                                                                       //
-//Email: fazheyan33@163.com / ccwei@sjtu.edu                                                 //
-//Department: Department of Bioinformatics and Biostatistics, Shanghai Jiao Tong University  //
-///////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "ghmm_modern.hpp"
 #include "fun_modern.hpp"
 #include "config_modern.hpp"
-using namespace std;
-
-/*
-This script is used to build a Weight Count Model according to the motif.In the meantime,get some conserved regions.And build GHMM models according to the motifs and using these GHMM models to predict new structures in unknown sqeuences;
-*/
-
-/*
-In the phase of finding motif,the training set sequences are clustered according to the result of multi-alignment.Foreach sub class,we find the best motif and build corresponding GHMM model.When scaning for a new unknown sequence,these GHMM models are combinded.This method may be not so efficient,but will be better in sensitivity as well as specificity.
-*/
-
-/*WorkFlow:
-1>According to the trainging set,cluster the data to some sub clusters
-2>Foreach cluster,find the best sequence motif using glam2 or muscle
-3>Foreach motif,a GHMM model is built
-4>All the GHMM models are used to scan for a new sequence
-5>Combind the results of different GHMM model
-6>combind the results of different parts,for example:DGR=TR+VR+RT
-*/
 
 struct DGR {
-  HMM_class TR; //clusters of TR
-  HMM_class VR; //clusters of VR
-  HMM_class RT; //clusters of RT
+  HMM_class TR;
+  HMM_class VR;
+  HMM_class RT;
 };
 
-struct arg { 
-  //arguments to scan the input file when using multi threads
-  string search; //INPUT
-  string putout; //OUTPUT
-  SCAN dgrScan; 
-  //the scan method,include three sub GHMM Models and a main GHMM model
+struct ScanArgs {
+  std::string search;
+  std::string putout;
+  SCAN dgrScan;
 };
 
-void scanDGR(arg& argument); //scan the unknown sequence using the model
-DGR buildDGRFromPath(const string& config_path);
+void scanDGR(ScanArgs& argument);
+DGR buildDGRFromPath(const std::string& config_path);
 
 int main(int argc,char* argv[]){
   if(argc < 3){
-    usage(argv[0]);
+    metacsst::usage(argv[0]);
     return 0;
   }
-  else{
-    int num_threads = 1; //thread number
-    string config_path;
-    string search; //unknown sequences file to scan
-    string dir = "out_metacsst"; //out directory
-    
-    for(int i = 1; i < argc; i++) {
-      if(strcmp(argv[i], "-thread") == 0 && i + 1 < argc)
-        num_threads = atoi(argv[i + 1]);
-      else if(strcmp(argv[i], "-build") == 0 && i + 1 < argc)
-        config_path = argv[i + 1];
-      else if(strcmp(argv[i], "-in") == 0 && i + 1 < argc)
-        search = argv[i + 1];
-      else if(strcmp(argv[i], "-out") == 0 && i + 1 < argc)
-        dir = argv[i + 1];
-      else if(strcmp(argv[i], "-h") == 0){
-        usage(argv[0]);
-        return 0;
-      }
-    }
-    
-    if(!config_path.empty()){
 
-      /*If the out directory exists,it will be covered*/
-      if(fs::exists(dir)){
-        cout << "directory " << dir << " exists,it will be covered!" << endl;
-        fs::remove_all(dir);
-      }
-      
-      /*mkdir: the out directory*/
-      fs::create_directories(dir);
-      
-      /*tmp directory:used to save the temp results,including the split files and intermediate results*/
-      string tmp = dir + "/tmp";
-      /*out file:final result*/
-      string out = dir + "/raw.gtf";
+  int num_threads = 1;
+  std::string config_path;
+  std::string search;
+  std::string dir = "out_metacsst";
 
-      DGR dgr;
+  for(int i = 1; i < argc; ++i) {
+    const std::string_view opt(argv[i]);
+    if(opt == "-thread" && i + 1 < argc) {
       try {
-        dgr = buildDGRFromPath(config_path);
-      } catch (const std::exception& ex) {
-        cerr << "Config error: " << ex.what() << endl;
+        num_threads = std::stoi(argv[++i]);
+      } catch (const std::exception&) {
+        metacsst::usage(argv[0]);
         return 1;
       }
-      //build DGR model accoring the config file
-      SCAN dgrScan; //a parameter used in the multi-thread scaning
-      dgrScan.init(dgr.TR, dgr.VR, dgr.RT, 10000);
-      dgrScan.print(const_cast<char*>(dir.c_str()));
+    }
+    else if(opt == "-build" && i + 1 < argc)
+      config_path = argv[++i];
+    else if(opt == "-in" && i + 1 < argc)
+      search = argv[++i];
+    else if(opt == "-out" && i + 1 < argc)
+      dir = argv[++i];
+    else if(opt == "-h"){
+      metacsst::usage(argv[0]);
+      return 0;
+    }
+  }
 
-      if(!search.empty()){
-        fs::create_directories(tmp);
-        
-        if(num_threads == 1){
-          string out_tmp = tmp + "/out_tmp.txt";
-          arg ARG;
-          ARG.search = search;
-          ARG.putout = out_tmp;
-          ARG.dgrScan = dgrScan;
+  if(num_threads <= 0) {
+    metacsst::usage(argv[0]);
+    return 1;
+  }
 
-          scanDGR(ARG);
-          
-          // Concatenate output to final file
-          if(!fs::exists(out)) {
-            // Just copy the temp file to output location
-            if(fs::exists(out_tmp)) {
-              fs::copy(out_tmp, out, fs::copy_options::overwrite_existing);
-            }
-          } else {
-            // Append temp file to existing output
-            ifstream src(out_tmp);
-            ofstream dst(out, ios::app);
-            if(src && dst) {
-              dst << src.rdbuf();
-            }
-          }
-        }
-        else{
-          int number = split(search, num_threads, tmp); //split the input big file according to the number of threads
-          vector<thread> threads; //threads
-          vector<string> out_tmp(number);
-          vector<string> sub_search(number);
-          vector<arg> ARG(number); //arguments for each thread
-          
-          for(int i = 0; i < number; i++){
-            ostringstream oss_out, oss_search;
-            oss_out << tmp << "/out_tmp_" << i << ".txt";
-            out_tmp[i] = oss_out.str();
-            
-            if(i >= 10)
-              oss_search << tmp << "/split_" << i;
-            else
-              oss_search << tmp << "/split_" << setw(2) << setfill('0') << i;
-            sub_search[i] = oss_search.str();
-            
-            ARG[i].search = sub_search[i];
-            ARG[i].putout = out_tmp[i];
-            ARG[i].dgrScan = dgrScan;
-            
-            threads.emplace_back(scanDGR, ref(ARG[i]));
-          }
+  if(config_path.empty()) {
+    metacsst::usage(argv[0]);
+    return 0;
+  }
 
-          // Wait for all threads to complete
-          for(auto& t : threads){
-            t.join();
-          }
-          
-          // Concatenate all output files
-          ofstream outfile(out);
-          if(outfile) {
-            for(int i = 0; i < number; i++){
-              ifstream infile(out_tmp[i]);
-              if(infile) {
-                outfile << infile.rdbuf();
-              }
-            }
-          }
-        }
-        
-        // Clean up temp directory
-        fs::remove_all(tmp);
+  if(fs::exists(dir)){
+    std::cout << "directory " << dir << " exists,it will be covered!" << std::endl;
+    fs::remove_all(dir);
+  }
+  fs::create_directories(dir);
+
+  const std::string tmp = dir + "/tmp";
+  const std::string out = dir + "/raw.gtf";
+
+  DGR dgr;
+  try {
+    dgr = buildDGRFromPath(config_path);
+  } catch (const std::exception& ex) {
+    std::cerr << "Config error: " << ex.what() << std::endl;
+    return 1;
+  }
+
+  SCAN dgrScan;
+  dgrScan.init(dgr.TR, dgr.VR, dgr.RT, 10000);
+  dgrScan.print(dir);
+
+  if(search.empty()) {
+    return 0;
+  }
+
+  fs::create_directories(tmp);
+
+  if(num_threads == 1){
+    const std::string out_tmp = tmp + "/out_tmp.txt";
+    ScanArgs args;
+    args.search = search;
+    args.putout = out_tmp;
+    args.dgrScan = dgrScan;
+
+    scanDGR(args);
+
+    if(!fs::exists(out)) {
+      if(fs::exists(out_tmp)) {
+        fs::copy(out_tmp, out, fs::copy_options::overwrite_existing);
+      }
+    } else {
+      std::ifstream src(out_tmp);
+      std::ofstream dst(out, std::ios::app);
+      if(src && dst) {
+        dst << src.rdbuf();
       }
     }
   }
+  else{
+    const int number = metacsst::split(search, num_threads, tmp);
+    std::vector<std::thread> threads;
+    std::vector<std::string> out_tmp(number);
+    std::vector<std::string> sub_search(number);
+    std::vector<ScanArgs> args(number);
+
+    for(int i = 0; i < number; ++i){
+      std::ostringstream oss_out;
+      oss_out << tmp << "/out_tmp_" << i << ".txt";
+      out_tmp[i] = oss_out.str();
+
+      std::ostringstream oss_search;
+      if(i >= 10)
+        oss_search << tmp << "/split_" << i;
+      else
+        oss_search << tmp << "/split_" << std::setw(2) << std::setfill('0') << i;
+      sub_search[i] = oss_search.str();
+
+      args[i].search = sub_search[i];
+      args[i].putout = out_tmp[i];
+      args[i].dgrScan = dgrScan;
+
+      threads.emplace_back(scanDGR, std::ref(args[i]));
+    }
+
+    for(auto& t : threads){
+      t.join();
+    }
+
+    std::ofstream outfile(out);
+    if(outfile) {
+      for(int i = 0; i < number; ++i){
+        std::ifstream infile(out_tmp[i]);
+        if(infile) {
+          outfile << infile.rdbuf();
+        }
+      }
+    }
+  }
+
+  fs::remove_all(tmp);
   return 0;
 }
 
-
-DGR buildDGRFromPath(const string& config_path){
+DGR buildDGRFromPath(const std::string& config_path){
   const auto dgr_cfg = metacsst::config::parse_dgr_motif_groups(config_path);
   DGR dgr;
   dgr.TR.init_groups(dgr_cfg.at("TR"));
@@ -201,55 +176,50 @@ DGR buildDGRFromPath(const string& config_path){
   return dgr;
 }
 
-void scanDGR(arg& ARG){
-  string tmp;
-  ofstream out(ARG.putout);
-  
-  if(!ARG.search.empty() && out){
-    ifstream IN(ARG.search);
-    string name;
-    
-    while(getline(IN, tmp)){
-      if(!tmp.empty() && tmp[0] == '>'){
-        // Parse sequence name
-        size_t end_pos = tmp.find_first_of(" \n");
-        if(end_pos != string::npos && end_pos > 1) {
-          name = tmp.substr(1, end_pos - 1);
+void scanDGR(ScanArgs& args){
+  std::string tmp_line;
+  std::ofstream out(args.putout);
+
+  if(!args.search.empty() && out){
+    std::ifstream in(args.search);
+    std::string name;
+
+    while(std::getline(in, tmp_line)){
+      if(!tmp_line.empty() && tmp_line[0] == '>'){
+        const std::size_t end_pos = tmp_line.find_first_of(" \n");
+        if(end_pos != std::string::npos && end_pos > 1) {
+          name = tmp_line.substr(1, end_pos - 1);
         } else {
-          name = tmp.substr(1);
+          name = tmp_line.substr(1);
         }
       }
-      else if(!tmp.empty()){
-        // Copy sequence to buffer for C-style scanning
-        vector<char> seq_buf(tmp.begin(), tmp.end());
-        seq_buf.push_back('\0');
-        
-        OUT* result = ARG.dgrScan.scanSeq(seq_buf.data());
-        
-        if(result->index == 1){ //index=1,there is sequence match
-          for(int i = 0; i < result->number; i++){
+      else if(!tmp_line.empty()){
+        auto result = args.dgrScan.scanSeq(tmp_line);
+
+        if(result->index == 1){
+          const std::string& seq_str = tmp_line;
+          for(int i = 0; i < result->number; ++i){
             if(result->type[i] != 2){
-              int start = result->start[i];
-              int end = result->end[i];
+              const int start = result->start[i];
+              const int end = result->end[i];
               out << name << "\t";
               switch(result->type[i]){
                 case 1: out << "TR\t"; break;
                 case 3: out << "RT\t"; break;
               }
-              
-              string matchSeq = metacsst::substr(string(seq_buf.data()), start, end - start + 1);
+
+              const std::string match_seq = metacsst::substr(seq_str, start, end - start + 1);
               if(result->string[i] == 1)
-                out << fixed << setprecision(2) << result->score[i] << "\t+\t" << start << "\t" << end << "\t" << matchSeq << "\n";
+                out << std::fixed << std::setprecision(2) << result->score[i] << "\t+\t" << start << "\t" << end << "\t" << match_seq << "\n";
               else{
-                string matchSeq_complementary = metacsst::complementary(matchSeq);
-                out << fixed << setprecision(2) << result->score[i] << "\t-\t" << start << "\t" << end << "\t" << matchSeq_complementary << "\n";
+                const std::string match_seq_complementary = metacsst::complementary(match_seq);
+                out << std::fixed << std::setprecision(2) << result->score[i] << "\t-\t" << start << "\t" << end << "\t" << match_seq_complementary << "\n";
               }
             }
           }
-          string matchSeq = metacsst::substr(string(seq_buf.data()), result->total_start, result->total_end - result->total_start + 1);
-          out << name << "\tDGR\t" << fixed << setprecision(2) << result->total_score << "\t*\t" << result->total_start << "\t" << result->total_end << "\t" << matchSeq << "\n";
+          const std::string match_seq = metacsst::substr(seq_str, result->total_start, result->total_end - result->total_start + 1);
+          out << name << "\tDGR\t" << std::fixed << std::setprecision(2) << result->total_score << "\t*\t" << result->total_start << "\t" << result->total_end << "\t" << match_seq << "\n";
         }
-        free(result);
       }
     }
   }

@@ -2,3 +2,5 @@
 test*
 __pycache__
 *.fxi
+MetaCSSTmain
+MetaCSSTsub
