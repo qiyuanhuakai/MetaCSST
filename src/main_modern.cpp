@@ -4,7 +4,6 @@
 #include <iostream>
 #include <memory>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -181,10 +180,14 @@ void scanDGR(ScanArgs& args){
   std::ofstream out(args.putout);
 
   if(!args.search.empty() && out){
-    std::ifstream in(args.search);
+    metacsst::LineReader in(args.search);
+    if(!in.is_open()) {
+      std::cerr << "Error: Cannot open input file: " << args.search << std::endl;
+      return;
+    }
     std::string name;
 
-    while(std::getline(in, tmp_line)){
+    while(in.getline(tmp_line)){
       if(!tmp_line.empty() && tmp_line[0] == '>'){
         const std::size_t end_pos = tmp_line.find_first_of(" \n");
         if(end_pos != std::string::npos && end_pos > 1) {

@@ -2,7 +2,7 @@
 
 CXX := g++
 CXXFLAGS := -std=c++20 -O2 -Wall -Wextra -pthread
-LDFLAGS := -pthread
+LDFLAGS := -pthread -lz
 
 SRCDIR := src
 EXAMPLEDIR := example
@@ -17,12 +17,13 @@ HEADERS := $(SRCDIR)/ghmm_modern.hpp $(SRCDIR)/fun_modern.hpp $(SRCDIR)/config_m
 TESTDIR := test_output
 TESTCONFIG := config.json
 TESTINPUT := $(EXAMPLEDIR)/hv29.fa
+TESTINPUT_GZ := $(EXAMPLEDIR)/hv29.fa.gz
 
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 DATADIR := $(PREFIX)/share/metacsst
 
-.PHONY: all modern test test-full verify verify-json verify-toml verify-yaml verifyall install uninstall clean help
+.PHONY: all modern test test-full test-compressed verify verify-json verify-toml verify-yaml verify-compressed verifyall install uninstall clean help
 
 all: modern
 
@@ -36,21 +37,33 @@ $(TARGET_SUB): $(SUB_SRC) $(HEADERS)
 	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
 	@echo "Built: $@"
 
-test: modern
+test: test-single test-multi test-compressed
+
+test-single: modern
 	@echo "Running quick test..."
 	@mkdir -p $(TESTDIR)
 	./$(TARGET_MAIN) -build $(TESTCONFIG) -in $(TESTINPUT) -out $(TESTDIR)/quick_raw -thread 1
 	python3 $(SRCDIR)/call_vr.py $(TESTDIR)/quick_raw/raw.gtf $(TESTINPUT) $(TESTDIR)/quick_final.gtf
 	@echo "Quick test output: $(TESTDIR)/quick_final.gtf"
 
-test-full: modern
+test-multi: modern
 	@echo "Running full test pipeline..."
 	@mkdir -p $(TESTDIR)
 	./$(TARGET_MAIN) -build $(TESTCONFIG) -in $(TESTINPUT) -out $(TESTDIR)/raw -thread 4
 	python3 $(SRCDIR)/call_vr.py $(TESTDIR)/raw/raw.gtf $(TESTINPUT) $(TESTDIR)/final.gtf
 	@echo "Full test complete. Results in $(TESTDIR)/final.gtf"
 
-verify-json: test-full
+test-compressed: modern
+	@echo "Running compressed FASTA pipeline..."
+	@mkdir -p $(TESTDIR)
+	./$(TARGET_MAIN) -build $(TESTCONFIG) -in $(TESTINPUT_GZ) -out $(TESTDIR)/gz_raw -thread 1
+	python3 $(SRCDIR)/call_vr.py $(TESTDIR)/gz_raw/raw.gtf $(TESTINPUT) $(TESTDIR)/gz_final.gtf
+	@echo "Compressed pipeline output: $(TESTDIR)/gz_final.gtf"
+
+verify: verify-json verify-toml verify-yaml verify-compressed
+	@echo "All verify pipelines passed."
+
+verify-json: test-single
 	@echo "Verifying output..."
 	@python3 -c "import sys; from collections import Counter; test_lines=Counter(open('$(TESTDIR)/final.gtf','r').readlines()); expected_lines=Counter(open('$(EXAMPLEDIR)/out-DGR.gtf','r').readlines()); common=sum((test_lines & expected_lines).values()); total=sum(expected_lines.values()); print(f'JSON Match: {common}/{total} lines ({100*common/total:.1f}%) [strict line-content multiset equality, order-insensitive]'); sys.exit(0 if test_lines==expected_lines else 1)"
 
@@ -68,11 +81,12 @@ verify-yaml: modern
 	python3 $(SRCDIR)/call_vr.py $(TESTDIR)/yaml_raw/raw.gtf $(TESTINPUT) $(TESTDIR)/yaml_final.gtf
 	@python3 -c "import sys; from collections import Counter; test_lines=Counter(open('$(TESTDIR)/yaml_final.gtf','r').readlines()); expected_lines=Counter(open('$(EXAMPLEDIR)/out-DGR.gtf','r').readlines()); common=sum((test_lines & expected_lines).values()); total=sum(expected_lines.values()); print(f'YAML Match: {common}/{total} lines ({100*common/total:.1f}%) [strict line-content multiset equality, order-insensitive]'); sys.exit(0 if test_lines==expected_lines else 1)"
 
-verifyall: verify-json verify-toml verify-yaml
-	@echo "All verify pipelines passed."
+verify-compressed: test-compressed
+	@echo "Verifying compressed FASTA pipeline..."
+	@python3 -c "import sys; from collections import Counter; test_lines=Counter(open('$(TESTDIR)/gz_final.gtf','r').readlines()); expected_lines=Counter(open('$(EXAMPLEDIR)/out-DGR.gtf','r').readlines()); common=sum((test_lines & expected_lines).values()); total=sum(expected_lines.values()); print(f'GZ Match: {common}/{total} lines ({100*common/total:.1f}%) [strict line-content multiset equality, order-insensitive]'); sys.exit(0 if test_lines==expected_lines else 1)"
 
-verify: verifyall
-	@true
+
+
 
 install: modern
 	@echo "Installing to $(PREFIX)..."
@@ -100,13 +114,8 @@ help:
 	@echo "MetaCSST make targets:"
 	@echo "  all        : Alias of modern"
 	@echo "  modern     : Build MetaCSSTmain and MetaCSSTsub"
-	@echo "  test       : Quick single-config smoke test (config.json)"
-	@echo "  test-full  : Full json pipeline -> test_output/final.gtf"
-	@echo "  verify     : Alias of verifyall"
-	@echo "  verify-json: Verify config.json pipeline"
-	@echo "  verify-toml: Verify config.toml pipeline"
-	@echo "  verify-yaml: Verify config.yaml pipeline"
-	@echo "  verifyall  : Run json + toml + yaml verifications"
+	@echo "  test       : Do all tests"
+	@echo "  verify     : Do all verifies"
 	@echo "  install    : Install binaries/configs"
 	@echo "  uninstall  : Remove installed files"
 	@echo "  clean      : Remove binaries and test_output"

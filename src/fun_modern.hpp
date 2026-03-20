@@ -8,10 +8,103 @@
 #include <cmath>
 #include <filesystem>
 #include <cctype>
+#include <cstring>
 #include <sstream>
 #include <unordered_map>
+#include <zlib.h>
 
 namespace metacsst {
+
+inline bool has_gzip_extension(const std::string& path) {
+    return path.size() >= 3 && path.compare(path.size() - 3, 3, ".gz") == 0;
+}
+
+inline bool is_gzip_file(const std::string& path) {
+    if (has_gzip_extension(path)) {
+        return true;
+    }
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+
+    unsigned char magic[2] = {0, 0};
+    in.read(reinterpret_cast<char*>(magic), 2);
+    return in.gcount() == 2 && magic[0] == 0x1f && magic[1] == 0x8b;
+}
+
+class LineReader {
+public:
+    explicit LineReader(const std::string& path)
+        : gzip_mode_(is_gzip_file(path)) {
+        if (gzip_mode_) {
+            gz_file_ = gzopen(path.c_str(), "rb");
+        } else {
+            file_stream_.open(path);
+        }
+    }
+
+    ~LineReader() {
+        if (gz_file_ != nullptr) {
+            gzclose(gz_file_);
+        }
+    }
+
+    bool is_open() const {
+        return gzip_mode_ ? gz_file_ != nullptr : file_stream_.is_open();
+    }
+
+    bool getline(std::string& line) {
+        line.clear();
+        if (!gzip_mode_) {
+            return static_cast<bool>(std::getline(file_stream_, line));
+        }
+
+        return gzip_getline(line);
+    }
+
+private:
+    bool gzip_getline(std::string& line) {
+        if (gz_file_ == nullptr) {
+            return false;
+        }
+
+        constexpr int kBufferSize = 8192;
+        char buffer[kBufferSize];
+        bool has_data = false;
+
+        while (true) {
+            char* read_ptr = gzgets(gz_file_, buffer, kBufferSize);
+            if (read_ptr == nullptr) {
+                return has_data;
+            }
+
+            has_data = true;
+            const std::size_t len = std::strlen(buffer);
+            if (len == 0) {
+                if (gzeof(gz_file_)) {
+                    return has_data;
+                }
+                continue;
+            }
+
+            if (buffer[len - 1] == '\n') {
+                line.append(buffer, len - 1);
+                return true;
+            }
+
+            line.append(buffer, len);
+            if (gzeof(gz_file_)) {
+                return true;
+            }
+        }
+    }
+
+    bool gzip_mode_{false};
+    std::ifstream file_stream_;
+    gzFile gz_file_{nullptr};
+};
 
 // Use namespace to avoid global pollution
 namespace constants {
@@ -161,18 +254,17 @@ inline int split(const std::string& file, int number, const std::string& dir) {
     if (number == 1) return num;
     
     // Count lines in file
-    std::ifstream infile(file);
-    if (!infile) {
+    LineReader infile(file);
+    if (!infile.is_open()) {
         std::cerr << "Error: Cannot open file " << file << std::endl;
         return 0;
     }
     
     int line = 0;
     std::string tmp;
-    while (std::getline(infile, tmp)) {
+    while (infile.getline(tmp)) {
         line++;
     }
-    infile.close();
     
     line /= 2;  // FASTA files have 2 lines per record
     int per = line / number + 1;
@@ -185,7 +277,12 @@ inline int split(const std::string& file, int number, const std::string& dir) {
     std::filesystem::create_directories(dir);
     
     // Read file and split manually (no system() call)
-    infile.open(file);
+    LineReader split_reader(file);
+    if (!split_reader.is_open()) {
+        std::cerr << "Error: Cannot open file " << file << std::endl;
+        return 0;
+    }
+
     int file_idx = 0;
     int lines_written = 0;
     int lines_per_file = per * 2;
@@ -202,7 +299,7 @@ inline int split(const std::string& file, int number, const std::string& dir) {
     
     open_new_file();
     
-    while (std::getline(infile, tmp)) {
+    while (split_reader.getline(tmp)) {
         outfile << tmp << '\n';
         lines_written++;
         
@@ -215,7 +312,6 @@ inline int split(const std::string& file, int number, const std::string& dir) {
     }
     
     outfile.close();
-    infile.close();
     
     return num;
 }
@@ -354,6 +450,9 @@ using metacsst::constants::D;
 using metacsst::substr;
 using metacsst::chomp;
 using metacsst::judge;
+using metacsst::has_gzip_extension;
+using metacsst::is_gzip_file;
+using metacsst::LineReader;
 using metacsst::swap;
 using metacsst::q_sort;
 using metacsst::cuttof;

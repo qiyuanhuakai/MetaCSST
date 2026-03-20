@@ -4,7 +4,6 @@
 #include <iostream>
 #include <memory>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -182,14 +181,14 @@ void scanFile(ScanArg& arg){
 
   if(arg.search.empty()) return;
 
-  std::ifstream in(arg.search);
-  if(!in){
+  metacsst::LineReader in(arg.search);
+  if(!in.is_open()){
     std::cerr << "Error: Cannot open input file: " << arg.search << std::endl;
     return;
   }
 
   std::string line;
-  while(std::getline(in, line)){
+  while(in.getline(line)){
     metacsst::chomp(line);
 
     if(!line.empty() && line[0] == '>'){
