@@ -4,3 +4,4 @@ __pycache__
 *.fxi
 MetaCSSTmain
 MetaCSSTsub
+.claude
