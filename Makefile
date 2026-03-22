@@ -12,7 +12,9 @@ TARGET_SUB := MetaCSSTsub
 
 MAIN_SRC := $(SRCDIR)/main_modern.cpp
 SUB_SRC := $(SRCDIR)/sub_modern.cpp
-HEADERS := $(SRCDIR)/ghmm_modern.hpp $(SRCDIR)/fun_modern.hpp $(SRCDIR)/config_modern.hpp
+HEADERS := $(SRCDIR)/ghmm_modern.hpp $(SRCDIR)/fun_modern.hpp $(SRCDIR)/config_modern.hpp \
+	$(SRCDIR)/app_common.hpp $(SRCDIR)/fasta_runtime.hpp $(SRCDIR)/thread_runtime.hpp \
+	$(SRCDIR)/main_scan.hpp $(SRCDIR)/sub_scan.hpp
 
 TESTDIR := test_output
 TESTCONFIG := config.json
@@ -23,7 +25,7 @@ PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 DATADIR := $(PREFIX)/share/metacsst
 
-.PHONY: all modern test test-full test-compressed verify verify-json verify-toml verify-yaml verify-compressed verifyall install uninstall clean help
+.PHONY: all modern test test-full test-compressed verify verify-json verify-toml verify-yaml verify-compressed verify-thread-consistency verify-sub-consistency verifyall install uninstall clean help
 
 all: modern
 
@@ -60,11 +62,11 @@ test-compressed: modern
 	python3 $(SRCDIR)/call_vr.py $(TESTDIR)/gz_raw/raw.gtf $(TESTINPUT) $(TESTDIR)/gz_final.gtf
 	@echo "Compressed pipeline output: $(TESTDIR)/gz_final.gtf"
 
-verify: verify-json verify-toml verify-yaml verify-compressed
+verify: verify-json verify-toml verify-yaml verify-compressed verify-thread-consistency verify-sub-consistency
 	@echo "All verify pipelines passed."
 
-verify-json: test-single
-	@echo "Verifying output..."
+verify-json: test-multi
+	@echo "Verifying JSON pipeline..."
 	@python3 -c "import sys; from collections import Counter; test_lines=Counter(open('$(TESTDIR)/final.gtf','r').readlines()); expected_lines=Counter(open('$(EXAMPLEDIR)/out-DGR.gtf','r').readlines()); common=sum((test_lines & expected_lines).values()); total=sum(expected_lines.values()); print(f'JSON Match: {common}/{total} lines ({100*common/total:.1f}%) [strict line-content multiset equality, order-insensitive]'); sys.exit(0 if test_lines==expected_lines else 1)"
 
 verify-toml: modern
@@ -84,6 +86,20 @@ verify-yaml: modern
 verify-compressed: test-compressed
 	@echo "Verifying compressed FASTA pipeline..."
 	@python3 -c "import sys; from collections import Counter; test_lines=Counter(open('$(TESTDIR)/gz_final.gtf','r').readlines()); expected_lines=Counter(open('$(EXAMPLEDIR)/out-DGR.gtf','r').readlines()); common=sum((test_lines & expected_lines).values()); total=sum(expected_lines.values()); print(f'GZ Match: {common}/{total} lines ({100*common/total:.1f}%) [strict line-content multiset equality, order-insensitive]'); sys.exit(0 if test_lines==expected_lines else 1)"
+
+verify-thread-consistency: modern
+	@echo "Verifying main thread consistency (1 vs 4)..."
+	@mkdir -p $(TESTDIR)
+	./$(TARGET_MAIN) -build $(TESTCONFIG) -in $(TESTINPUT) -out $(TESTDIR)/raw_t1 -thread 1
+	./$(TARGET_MAIN) -build $(TESTCONFIG) -in $(TESTINPUT) -out $(TESTDIR)/raw_t4 -thread 4
+	@python3 -c "import sys; from collections import Counter; a=Counter(open('$(TESTDIR)/raw_t1/raw.gtf','r').readlines()); b=Counter(open('$(TESTDIR)/raw_t4/raw.gtf','r').readlines()); common=sum((a & b).values()); total=max(sum(a.values()), sum(b.values())); print(f'MAIN Thread Consistency: {common}/{total} lines ({100*common/total if total else 100:.1f}%) [strict line-content multiset equality, order-insensitive]'); sys.exit(0 if a==b else 1)"
+
+verify-sub-consistency: modern
+	@echo "Verifying sub thread consistency (1 vs 2)..."
+	@mkdir -p $(TESTDIR)
+	./$(TARGET_SUB) -build $(TESTCONFIG) -in $(TESTINPUT) -out $(TESTDIR)/sub_t1 -thread 1
+	./$(TARGET_SUB) -build $(TESTCONFIG) -in $(TESTINPUT) -out $(TESTDIR)/sub_t2 -thread 2
+	@python3 -c "import sys; from collections import Counter; a=Counter(open('$(TESTDIR)/sub_t1/out.txt','r').readlines()); b=Counter(open('$(TESTDIR)/sub_t2/out.txt','r').readlines()); common=sum((a & b).values()); total=max(sum(a.values()), sum(b.values())); print(f'SUB Thread Consistency: {common}/{total} lines ({100*common/total if total else 100:.1f}%) [strict line-content multiset equality, order-insensitive]'); sys.exit(0 if a==b else 1)"
 
 
 
