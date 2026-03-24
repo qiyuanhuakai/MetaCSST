@@ -5,3 +5,15 @@ __pycache__
 MetaCSSTmain
 MetaCSSTsub
 .claude
+
+# local caches and generated outputs
+.cache/
+test_output/
+src/third_party/
+
+# local tooling/workspace artifacts
+compile_commands.json
+.clangd
+
+# local notes/reports
+report.md

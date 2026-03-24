@@ -7,6 +7,36 @@ LDFLAGS := -pthread -lz
 SRCDIR := src
 EXAMPLEDIR := example
 
+# Third-party dependency management (deterministic local vendor)
+THIRD_PARTY_DIR := $(SRCDIR)/third_party
+VENDOR_DIR := $(THIRD_PARTY_DIR)/vendor
+BUILD_DIR := $(THIRD_PARTY_DIR)/build
+STAMP_DIR := $(THIRD_PARTY_DIR)/stamps
+
+NLOHMANN_JSON_VERSION := v3.11.3
+NLOHMANN_JSON_ARCHIVE := $(VENDOR_DIR)/nlohmann-json-$(NLOHMANN_JSON_VERSION).tar.xz
+NLOHMANN_JSON_DIR := $(VENDOR_DIR)/json
+NLOHMANN_JSON_INC := $(NLOHMANN_JSON_DIR)/single_include
+
+TOMLPP_VERSION := v3.4.0
+TOMLPP_ARCHIVE := $(VENDOR_DIR)/tomlplusplus-$(TOMLPP_VERSION).tar.gz
+TOMLPP_DIR := $(VENDOR_DIR)/tomlplusplus
+TOMLPP_INC := $(TOMLPP_DIR)/include
+
+YAML_CPP_VERSION := 0.8.0
+YAML_CPP_TAG := yaml-cpp-$(YAML_CPP_VERSION)
+YAML_CPP_ARCHIVE := $(VENDOR_DIR)/yaml-cpp-$(YAML_CPP_VERSION).tar.gz
+YAML_CPP_SRC_DIR := $(VENDOR_DIR)/$(YAML_CPP_TAG)
+YAML_CPP_BUILD_DIR := $(BUILD_DIR)/yaml-cpp
+YAML_CPP_LIB := $(YAML_CPP_BUILD_DIR)/libyaml-cpp.a
+YAML_CPP_INC := $(YAML_CPP_SRC_DIR)/include
+
+THIRD_PARTY_CFLAGS := -I$(NLOHMANN_JSON_INC) -I$(TOMLPP_INC) -I$(YAML_CPP_INC)
+THIRD_PARTY_LIBS := $(YAML_CPP_LIB)
+
+CXXFLAGS += $(THIRD_PARTY_CFLAGS)
+LDFLAGS += $(THIRD_PARTY_LIBS)
+
 TARGET_MAIN := MetaCSSTmain
 TARGET_SUB := MetaCSSTsub
 
@@ -14,7 +44,8 @@ MAIN_SRC := $(SRCDIR)/main_modern.cpp
 SUB_SRC := $(SRCDIR)/sub_modern.cpp
 HEADERS := $(SRCDIR)/ghmm_modern.hpp $(SRCDIR)/fun_modern.hpp $(SRCDIR)/config_modern.hpp \
 	$(SRCDIR)/app_common.hpp $(SRCDIR)/fasta_runtime.hpp $(SRCDIR)/thread_runtime.hpp \
-	$(SRCDIR)/main_scan.hpp $(SRCDIR)/sub_scan.hpp
+	$(SRCDIR)/main_scan.hpp $(SRCDIR)/sub_scan.hpp $(SRCDIR)/scan_pipeline.hpp \
+	$(SRCDIR)/main_formatter.hpp $(SRCDIR)/sub_formatter.hpp
 
 TESTDIR := test_output
 TESTCONFIG := config.json
@@ -25,11 +56,58 @@ PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 DATADIR := $(PREFIX)/share/metacsst
 
-.PHONY: all modern test test-full test-compressed verify verify-json verify-toml verify-yaml verify-compressed verify-thread-consistency verify-sub-consistency verifyall install uninstall clean help
+.PHONY: deps modern verify verify-json verify-toml verify-yaml verify-compressed verify-thread-consistency verify-sub-consistency install uninstall clean help example
 
-all: modern
 
-modern: $(TARGET_MAIN) $(TARGET_SUB)
+deps: $(STAMP_DIR)/deps.ready
+
+$(STAMP_DIR):
+	@mkdir -p $(STAMP_DIR)
+
+$(VENDOR_DIR):
+	@mkdir -p $(VENDOR_DIR)
+
+$(BUILD_DIR):
+	@mkdir -p $(BUILD_DIR)
+
+$(NLOHMANN_JSON_ARCHIVE): | $(VENDOR_DIR)
+	@echo "Fetching nlohmann/json $(NLOHMANN_JSON_VERSION)..."
+	@curl -L --fail --retry 3 --retry-delay 2 -o $@ https://github.com/nlohmann/json/releases/download/$(NLOHMANN_JSON_VERSION)/json.tar.xz
+
+$(NLOHMANN_JSON_INC): $(NLOHMANN_JSON_ARCHIVE)
+	@echo "Extracting nlohmann/json..."
+	@rm -rf $(NLOHMANN_JSON_DIR)
+	@tar -xf $(NLOHMANN_JSON_ARCHIVE) -C $(VENDOR_DIR)
+
+$(TOMLPP_ARCHIVE): | $(VENDOR_DIR)
+	@echo "Fetching toml++ $(TOMLPP_VERSION)..."
+	@curl -L --fail --retry 3 --retry-delay 2 -o $@ https://github.com/marzer/tomlplusplus/archive/refs/tags/$(TOMLPP_VERSION).tar.gz
+
+$(TOMLPP_INC): $(TOMLPP_ARCHIVE)
+	@echo "Extracting toml++..."
+	@rm -rf $(TOMLPP_DIR)
+	@tar -xzf $(TOMLPP_ARCHIVE) -C $(VENDOR_DIR)
+	@mv $(VENDOR_DIR)/tomlplusplus-3.4.0 $(TOMLPP_DIR)
+
+$(YAML_CPP_ARCHIVE): | $(VENDOR_DIR)
+	@echo "Fetching yaml-cpp $(YAML_CPP_TAG)..."
+	@curl -L --fail --retry 3 --retry-delay 2 -o $@ https://github.com/jbeder/yaml-cpp/archive/refs/tags/$(YAML_CPP_VERSION).tar.gz
+
+$(YAML_CPP_SRC_DIR): $(YAML_CPP_ARCHIVE)
+	@echo "Extracting yaml-cpp..."
+	@rm -rf $(YAML_CPP_SRC_DIR)
+	@tar -xzf $(YAML_CPP_ARCHIVE) -C $(VENDOR_DIR)
+
+$(YAML_CPP_LIB): $(YAML_CPP_SRC_DIR) | $(BUILD_DIR)
+	@echo "Building yaml-cpp static library..."
+	@rm -rf $(YAML_CPP_BUILD_DIR)
+	@cmake -S $(YAML_CPP_SRC_DIR) -B $(YAML_CPP_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DYAML_CPP_BUILD_TESTS=OFF -DYAML_CPP_BUILD_TOOLS=OFF -DYAML_BUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+	@cmake --build $(YAML_CPP_BUILD_DIR) --parallel
+
+$(STAMP_DIR)/deps.ready: $(NLOHMANN_JSON_INC) $(TOMLPP_INC) $(YAML_CPP_LIB) | $(STAMP_DIR)
+	@touch $@
+
+modern: deps $(TARGET_MAIN) $(TARGET_SUB)
 
 $(TARGET_MAIN): $(MAIN_SRC) $(HEADERS)
 	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
@@ -39,33 +117,16 @@ $(TARGET_SUB): $(SUB_SRC) $(HEADERS)
 	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
 	@echo "Built: $@"
 
-test: test-single test-multi test-compressed
 
-test-single: modern
-	@echo "Running quick test..."
-	@mkdir -p $(TESTDIR)
-	./$(TARGET_MAIN) -build $(TESTCONFIG) -in $(TESTINPUT) -out $(TESTDIR)/quick_raw -thread 1
-	python3 $(SRCDIR)/call_vr.py $(TESTDIR)/quick_raw/raw.gtf $(TESTINPUT) $(TESTDIR)/quick_final.gtf
-	@echo "Quick test output: $(TESTDIR)/quick_final.gtf"
+verify: verify-json verify-toml verify-yaml verify-compressed verify-thread-consistency verify-sub-consistency
+	@echo "All verify pipelines passed."
 
-test-multi: modern
+verify-json: modern
 	@echo "Running full test pipeline..."
 	@mkdir -p $(TESTDIR)
 	./$(TARGET_MAIN) -build $(TESTCONFIG) -in $(TESTINPUT) -out $(TESTDIR)/raw -thread 4
 	python3 $(SRCDIR)/call_vr.py $(TESTDIR)/raw/raw.gtf $(TESTINPUT) $(TESTDIR)/final.gtf
 	@echo "Full test complete. Results in $(TESTDIR)/final.gtf"
-
-test-compressed: modern
-	@echo "Running compressed FASTA pipeline..."
-	@mkdir -p $(TESTDIR)
-	./$(TARGET_MAIN) -build $(TESTCONFIG) -in $(TESTINPUT_GZ) -out $(TESTDIR)/gz_raw -thread 1
-	python3 $(SRCDIR)/call_vr.py $(TESTDIR)/gz_raw/raw.gtf $(TESTINPUT) $(TESTDIR)/gz_final.gtf
-	@echo "Compressed pipeline output: $(TESTDIR)/gz_final.gtf"
-
-verify: verify-json verify-toml verify-yaml verify-compressed verify-thread-consistency verify-sub-consistency
-	@echo "All verify pipelines passed."
-
-verify-json: test-multi
 	@echo "Verifying JSON pipeline..."
 	@python3 -c "import sys; from collections import Counter; test_lines=Counter(open('$(TESTDIR)/final.gtf','r').readlines()); expected_lines=Counter(open('$(EXAMPLEDIR)/out-DGR.gtf','r').readlines()); common=sum((test_lines & expected_lines).values()); total=sum(expected_lines.values()); print(f'JSON Match: {common}/{total} lines ({100*common/total:.1f}%) [strict line-content multiset equality, order-insensitive]'); sys.exit(0 if test_lines==expected_lines else 1)"
 
@@ -83,7 +144,12 @@ verify-yaml: modern
 	python3 $(SRCDIR)/call_vr.py $(TESTDIR)/yaml_raw/raw.gtf $(TESTINPUT) $(TESTDIR)/yaml_final.gtf
 	@python3 -c "import sys; from collections import Counter; test_lines=Counter(open('$(TESTDIR)/yaml_final.gtf','r').readlines()); expected_lines=Counter(open('$(EXAMPLEDIR)/out-DGR.gtf','r').readlines()); common=sum((test_lines & expected_lines).values()); total=sum(expected_lines.values()); print(f'YAML Match: {common}/{total} lines ({100*common/total:.1f}%) [strict line-content multiset equality, order-insensitive]'); sys.exit(0 if test_lines==expected_lines else 1)"
 
-verify-compressed: test-compressed
+verify-compressed: modern
+	@echo "Running compressed FASTA pipeline..."
+	@mkdir -p $(TESTDIR)
+	./$(TARGET_MAIN) -build $(TESTCONFIG) -in $(TESTINPUT_GZ) -out $(TESTDIR)/gz_raw -thread 1
+	python3 $(SRCDIR)/call_vr.py $(TESTDIR)/gz_raw/raw.gtf $(TESTINPUT) $(TESTDIR)/gz_final.gtf
+	@echo "Compressed pipeline output: $(TESTDIR)/gz_final.gtf"
 	@echo "Verifying compressed FASTA pipeline..."
 	@python3 -c "import sys; from collections import Counter; test_lines=Counter(open('$(TESTDIR)/gz_final.gtf','r').readlines()); expected_lines=Counter(open('$(EXAMPLEDIR)/out-DGR.gtf','r').readlines()); common=sum((test_lines & expected_lines).values()); total=sum(expected_lines.values()); print(f'GZ Match: {common}/{total} lines ({100*common/total:.1f}%) [strict line-content multiset equality, order-insensitive]'); sys.exit(0 if test_lines==expected_lines else 1)"
 
@@ -124,14 +190,28 @@ clean:
 	@echo "Cleaning build artifacts..."
 	@rm -f $(TARGET_MAIN) $(TARGET_SUB) .deps
 	@rm -rf $(TESTDIR)
+	@rm -rf $(THIRD_PARTY_DIR)
 	@echo "Clean complete."
+
+example:
+	@echo "MetaCSST usage examples:"
+	@echo "  1) Build models + run full prediction (JSON config)"
+	@echo "     ./MetaCSSTmain -build config.json -in example/hv29.fa -out example/run_out -thread 4"
+	@echo "  2) Build models + run with TOML config"
+	@echo "     ./MetaCSSTmain -build config.toml -in example/hv29.fa -out example/run_out_toml -thread 2"
+	@echo "  3) Build models + run with YAML config"
+	@echo "     ./MetaCSSTmain -build config.yaml -in example/hv29.fa -out example/run_out_yaml -thread 2"
+	@echo "  4) Sub-structure scan only (TR/VR/RT)"
+	@echo "     ./MetaCSSTsub -build config.json -in example/hv29.fa -out example/sub_out -thread 2"
+	@echo "  5) Post-process raw output"
+	@echo "     python3 src/call_vr.py example/run_out/raw.gtf example/hv29.fa example/final.gtf"
 
 help:
 	@echo "MetaCSST make targets:"
-	@echo "  all        : Alias of modern"
+	@echo "  deps       : Fetch/build local third-party parser dependencies"
 	@echo "  modern     : Build MetaCSSTmain and MetaCSSTsub"
-	@echo "  test       : Do all tests"
-	@echo "  verify     : Do all verifies"
+	@echo "  verify     : Build + run all verification pipelines"
+	@echo "  example    : Print runnable usage examples"
 	@echo "  install    : Install binaries/configs"
 	@echo "  uninstall  : Remove installed files"
 	@echo "  clean      : Remove binaries and test_output"
