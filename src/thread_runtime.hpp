@@ -54,22 +54,33 @@ inline bool run_split_workers(const std::string& search,
 
   std::vector<std::thread> threads;
   std::vector<std::unique_ptr<ArgType>> args;
+  std::vector<char> worker_success;
   output_files.assign(static_cast<std::size_t>(number), std::string());
   args.reserve(static_cast<std::size_t>(number));
   threads.reserve(static_cast<std::size_t>(number));
+  worker_success.assign(static_cast<std::size_t>(number), static_cast<char>(0));
 
   for (int i = 0; i < number; ++i) {
     const std::string sub_search = split_file_path(tmp_dir, i, legacy_sub_format);
     const std::string out_tmp = worker_output_path(tmp_dir, i);
+    const std::size_t index = static_cast<std::size_t>(i);
     output_files[static_cast<std::size_t>(i)] = out_tmp;
 
     args.push_back(std::make_unique<ArgType>());
     bind_arg(*args.back(), sub_search, out_tmp);
-    threads.emplace_back(runner, std::ref(*args.back()));
+    threads.emplace_back([&, index]() {
+      worker_success[index] = runner(*args[index]) ? static_cast<char>(1) : static_cast<char>(0);
+    });
   }
 
   for (auto& t : threads) {
     t.join();
+  }
+
+  for (const char ok : worker_success) {
+    if (ok == static_cast<char>(0)) {
+      return false;
+    }
   }
   return true;
 }
