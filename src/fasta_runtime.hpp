@@ -28,7 +28,7 @@ inline std::string extract_fasta_name(const std::string& header, bool stop_at_br
 
 template <typename SequenceHandler>
 inline int stream_fasta_sequences(const std::string& input_path, bool stop_at_bracket, SequenceHandler handler) {
-  metacsst::LineReader in(input_path);
+  metacsst::line_reader in(input_path);
   if (!in.is_open()) {
     std::cerr << "Error: Cannot open input file: " << input_path << std::endl;
     return 1;

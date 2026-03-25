@@ -26,7 +26,7 @@ TOMLPP_INC := $(TOMLPP_DIR)/include
 YAML_CPP_VERSION := 0.8.0
 YAML_CPP_TAG := yaml-cpp-$(YAML_CPP_VERSION)
 YAML_CPP_ARCHIVE := $(VENDOR_DIR)/yaml-cpp-$(YAML_CPP_VERSION).tar.gz
-YAML_CPP_SRC_DIR := $(VENDOR_DIR)/$(YAML_CPP_TAG)
+YAML_CPP_SRC_DIR := $(VENDOR_DIR)/yaml-cpp-$(YAML_CPP_VERSION)
 YAML_CPP_BUILD_DIR := $(BUILD_DIR)/yaml-cpp
 YAML_CPP_LIB := $(YAML_CPP_BUILD_DIR)/libyaml-cpp.a
 YAML_CPP_INC := $(YAML_CPP_SRC_DIR)/include
@@ -97,12 +97,16 @@ $(YAML_CPP_SRC_DIR): $(YAML_CPP_ARCHIVE)
 	@echo "Extracting yaml-cpp..."
 	@rm -rf $(YAML_CPP_SRC_DIR)
 	@tar -xzf $(YAML_CPP_ARCHIVE) -C $(VENDOR_DIR)
+	@test -d $(YAML_CPP_SRC_DIR) || (echo "Error: yaml-cpp source extraction failed at $(YAML_CPP_SRC_DIR)" && exit 1)
 
 $(YAML_CPP_LIB): $(YAML_CPP_SRC_DIR) | $(BUILD_DIR)
 	@echo "Building yaml-cpp static library..."
+	@command -v cmake >/dev/null 2>&1 || (echo "Error: cmake not found in PATH." && exit 1)
+	@test -d $(YAML_CPP_SRC_DIR) || (echo "Error: yaml-cpp source directory not found: $(YAML_CPP_SRC_DIR)" && exit 1)
 	@rm -rf $(YAML_CPP_BUILD_DIR)
-	@cmake -S $(YAML_CPP_SRC_DIR) -B $(YAML_CPP_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DYAML_CPP_BUILD_TESTS=OFF -DYAML_CPP_BUILD_TOOLS=OFF -DYAML_BUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-	@cmake --build $(YAML_CPP_BUILD_DIR) --parallel
+	@mkdir -p $(YAML_CPP_BUILD_DIR)
+	@cmake -E chdir $(YAML_CPP_BUILD_DIR) cmake $(abspath $(YAML_CPP_SRC_DIR)) -DCMAKE_BUILD_TYPE=Release -DYAML_CPP_BUILD_TESTS=OFF -DYAML_CPP_BUILD_TOOLS=OFF -DYAML_BUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+	@cmake --build $(YAML_CPP_BUILD_DIR) 
 
 $(STAMP_DIR)/deps.ready: $(NLOHMANN_JSON_INC) $(TOMLPP_INC) $(YAML_CPP_LIB) | $(STAMP_DIR)
 	@touch $@

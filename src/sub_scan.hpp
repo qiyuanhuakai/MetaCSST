@@ -14,9 +14,9 @@
 
 namespace metacsst::subscan {
 
-class SubScanStrategy : public metacsst::pipeline::ScanStrategy<HMM_class> {
+class sub_scan_strategy : public metacsst::pipeline::ScanStrategy<hmm_class> {
  public:
-  using Context = metacsst::pipeline::StrategyContext<HMM_class>;
+  using Context = metacsst::pipeline::StrategyContext<hmm_class>;
 
   bool run_worker(Context& context) const override {
     std::ofstream out(context.output);
@@ -33,7 +33,7 @@ class SubScanStrategy : public metacsst::pipeline::ScanStrategy<HMM_class> {
       context.search,
       true,
       [&](const std::string& name, const std::string& line) {
-        auto result = context.model.scanSeq(line);
+        auto result = context.model.scan_seq(line);
         if (result->number > 0) {
           metacsst::formatter::write_sub_header(out, name, line);
           for (int i = 0; i < result->number; ++i) {
@@ -84,12 +84,14 @@ class SubScanStrategy : public metacsst::pipeline::ScanStrategy<HMM_class> {
   }
 };
 
+using SubScanStrategy = sub_scan_strategy;
+
 inline bool run_scan_pipeline(const std::string& search,
                               const std::string& output_path,
                               const std::string& tmp_dir,
                               int thread_count,
-                              const HMM_class& model) {
-  const SubScanStrategy strategy;
+                              const hmm_class& model) {
+  const sub_scan_strategy strategy;
   return metacsst::pipeline::run_pipeline(search, output_path, tmp_dir, thread_count, model, strategy);
 }
 

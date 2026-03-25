@@ -42,7 +42,7 @@ int main(int argc,char* argv[]){
   const std::string tmp = dir + "/tmp";
   const std::string out = dir + "/raw.gtf";
 
-  metacsst::mainscan::DGRModels models;
+  metacsst::mainscan::dgr_models models;
   try {
     models = metacsst::mainscan::build_models_from_config(options.config_path);
   } catch (const std::exception& ex) {
@@ -50,9 +50,9 @@ int main(int argc,char* argv[]){
     return 1;
   }
 
-  SCAN dgrScan;
-  dgrScan.init(models.TR, models.VR, models.RT, 10000);
-  dgrScan.print(dir);
+  scan_model dgr_scan;
+  dgr_scan.init(models.TR, models.VR, models.RT, 10000);
+  dgr_scan.print(dir);
 
   if(search.empty()) {
     return 0;
@@ -60,7 +60,7 @@ int main(int argc,char* argv[]){
 
   fs::create_directories(tmp);
 
-  if(!metacsst::mainscan::run_scan_pipeline(search, out, tmp, options.threads, dgrScan)) {
+  if(!metacsst::mainscan::run_scan_pipeline(search, out, tmp, options.threads, dgr_scan)) {
     metacsst::app::cleanup_tmp_directory(tmp);
     return 1;
   }

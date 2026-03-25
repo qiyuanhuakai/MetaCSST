@@ -34,9 +34,9 @@ inline bool is_gzip_file(const std::string& path) {
     return in.gcount() == 2 && magic[0] == 0x1f && magic[1] == 0x8b;
 }
 
-class LineReader {
+class line_reader {
 public:
-    explicit LineReader(const std::string& path)
+    explicit line_reader(const std::string& path)
         : gzip_mode_(is_gzip_file(path)) {
         if (gzip_mode_) {
             gz_file_ = gzopen(path.c_str(), "rb");
@@ -45,7 +45,7 @@ public:
         }
     }
 
-    ~LineReader() {
+    ~line_reader() {
         if (gz_file_ != nullptr) {
             gzclose(gz_file_);
         }
@@ -105,6 +105,8 @@ private:
     std::ifstream file_stream_;
     gzFile gz_file_{nullptr};
 };
+
+using LineReader = line_reader;
 
 // Use namespace to avoid global pollution
 namespace constants {
@@ -220,7 +222,7 @@ inline void q_sort(float* score, int left, int right) {
  * @param ratio Ratio between 0 and 1
  * @return Cutoff value
  */
-inline float cuttof(const std::vector<float>& score, int number, float ratio) {
+inline float cutoff(const std::vector<float>& score, int number, float ratio) {
     std::vector<float> sorted(score.begin(), score.begin() + number);
     std::sort(sorted.begin(), sorted.end());
     int i = static_cast<int>(std::ceil((1 - ratio) * number));
@@ -235,11 +237,19 @@ inline float cuttof(const std::vector<float>& score, int number, float ratio) {
  * @param ratio Ratio between 0 and 1
  * @return Cutoff value
  */
-inline float cuttof(float** score, int number, float ratio) {
+inline float cutoff(float** score, int number, float ratio) {
     q_sort(*score, 0, number);
     int i = static_cast<int>(std::ceil((1 - ratio) * number));
     i = std::clamp(i, 0, number);
     return (*score)[i];
+}
+
+inline float cuttof(const std::vector<float>& score, int number, float ratio) {
+    return cutoff(score, number, ratio);
+}
+
+inline float cuttof(float** score, int number, float ratio) {
+    return cutoff(score, number, ratio);
 }
 
 /**
@@ -254,7 +264,7 @@ inline int split(const std::string& file, int number, const std::string& dir) {
     if (number == 1) return num;
     
     // Count lines in file
-    LineReader infile(file);
+    line_reader infile(file);
     if (!infile.is_open()) {
         std::cerr << "Error: Cannot open file " << file << std::endl;
         return 0;
@@ -277,7 +287,7 @@ inline int split(const std::string& file, int number, const std::string& dir) {
     std::filesystem::create_directories(dir);
     
     // Read file and split manually (no system() call)
-    LineReader split_reader(file);
+    line_reader split_reader(file);
     if (!split_reader.is_open()) {
         std::cerr << "Error: Cannot open file " << file << std::endl;
         return 0;
@@ -452,9 +462,11 @@ using metacsst::chomp;
 using metacsst::judge;
 using metacsst::has_gzip_extension;
 using metacsst::is_gzip_file;
+using metacsst::line_reader;
 using metacsst::LineReader;
 using metacsst::swap;
 using metacsst::q_sort;
+using metacsst::cutoff;
 using metacsst::cuttof;
 using metacsst::split;
 using metacsst::complementary;

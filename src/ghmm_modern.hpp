@@ -52,7 +52,7 @@ struct box { //every box is a state in the Hidden Markov Model
   vector<vector<float>> score; //scoring matrix of the state box
 };
 
-struct MatchState {
+struct match_state {
   int start;
   int end;
   float score;
@@ -66,7 +66,7 @@ struct sub_hmm { //sub HMM strctures ,such as TR/VR/RT
   int index; //index=-1 -> init;  index=0->TR;  index=1->VR  index=2->RT;
 };
 
-struct OUT { //scaning result,for sub HMM(TR/VR/RT) or the total DGR
+struct out_result { //scaning result,for sub HMM(TR/VR/RT) or the total DGR
   int number; //matchSeq number
   std::array<float, S> score{}; //score of the matches
   std::array<int, S> start{}; //start site
@@ -80,64 +80,67 @@ struct OUT { //scaning result,for sub HMM(TR/VR/RT) or the total DGR
   int index; //used only for DGR;0->no hot,1->DGR in found
 };
 
-class HMM{
+class hmm_model{
  private:
   int len; //length cuttof used to ensure a state
   int size; //state number in the Hidden Markov Model
   int window; //max box length,used as a window size
   int gap; //max gap length between two states
-  float cuttof; //cuttof value for a subsequence matching a state box(0~1)
+  float cutoff; //cutoff value for a subsequence matching a state box(0~1)
   vector<string> name; //state names
   vector<box> state; //every state is a box,represented by a scoring metrix(Position Specific Scoring Metrix)
   vector<vector<float>> trans; //Transition probability Metrix beteen the states
   vector<float> start,end; //start and end probability for the states
  public:
-  float score_cuttof; //score cottof for a sequence belong to this HMM model
+  float score_cutoff; //score cutoff for a sequence belong to this HMM model
 
-  HMM(): len(0), size(0), window(0), gap(0), cuttof(0.0f), score_cuttof(0.0f) {}
+  hmm_model(): len(0), size(0), window(0), gap(0), cutoff(0.0f), score_cutoff(0.0f) {}
 
-  HMM(const vector<vector<float>>& transition,
+  hmm_model(const vector<vector<float>>& transition,
       const vector<pattern>& metrix,
       int number,
       float value,
       int window_size,
       int gap_length,
       int state_length,
-      float seq_score_cuttof){
-    init(transition,metrix,number,value,window_size,gap_length,state_length,seq_score_cuttof);
+      float seq_score_cutoff){
+    init(transition,metrix,number,value,window_size,gap_length,state_length,seq_score_cutoff);
   }
 
   void init(const vector<vector<float>>& transition,
             const vector<pattern>& metrix,
             int number,
-            float cuttof_value,
+            float cutoff_value,
             int window_size,
             int gap_length,
             int state_length,
-            float seq_score_cuttof);
+            float seq_score_cutoff);
   void print(const std::string& dir);
-  std::unique_ptr<OUT> scanSeqSingle(std::string_view seq); //only scan for positive string
-  std::unique_ptr<OUT> scanSeqFull(std::string_view seq); //scan for the both two directions
+  std::unique_ptr<out_result> scan_seq_single(std::string_view seq); //only scan for positive string
+  std::unique_ptr<out_result> scan_seq_full(std::string_view seq); //scan for the both two directions
+
+  std::unique_ptr<out_result> scanSeqSingle(std::string_view seq) { return scan_seq_single(seq); }
+  std::unique_ptr<out_result> scanSeqFull(std::string_view seq) { return scan_seq_full(seq); }
 };
 
 inline bool arg_equals(std::string_view arg, std::string_view option) {
   return arg == option;
 }
 
-void HMM::init(const vector<vector<float>>& transition,
+void hmm_model::init(const vector<vector<float>>& transition,
                const vector<pattern>& metrix,
                int number,
-               float cuttof_value,
+               float cutoff_value,
                int window_size,
                int gap_length,
                int state_length,
-               float seq_score_cuttof){
+               float seq_score_cutoff){
   len = state_length;
   gap = gap_length;
   size = number;
   window = window_size;
-  cuttof = cuttof_value;
-  score_cuttof = seq_score_cuttof;
+  cutoff = cutoff_value;
+  score_cutoff = seq_score_cutoff;
 
   name.assign(size,string());
   state.assign(size,box());
@@ -174,7 +177,7 @@ void HMM::init(const vector<vector<float>>& transition,
   }
 }
 
-void HMM::print(const std::string& dir){
+void hmm_model::print(const std::string& dir){
 
   const auto align_path = std::filesystem::path(dir) / "align.txt";
   const auto score_path = std::filesystem::path(dir) / "score.txt";
@@ -238,22 +241,22 @@ void HMM::print(const std::string& dir){
 
   fp2 << "Window size:" << window << '\n';
   fp2 << "Gap length:" << gap << '\n';
-  fp2 << "Match score cuttof:" << std::fixed << std::setprecision(2) << score_cuttof << '\n';
+  fp2 << "Match score cutoff:" << std::fixed << std::setprecision(2) << score_cutoff << '\n';
   fp1 << "++++++++++++++++++++++++++++++++++++++++++++++++++++++\n";
   fp2 << "++++++++++++++++++++++++++++++++++++++++++++++++++++++\n";
 }
 
 
-std::unique_ptr<OUT> HMM::scanSeqSingle(std::string_view seq){
+std::unique_ptr<out_result> hmm_model::scan_seq_single(std::string_view seq){
   /*workflow of scaning for TR,VR or RT:
     (1)foreach sub state,set down the matching subSeqs(position as well as score).
     (2)according to the gap length,the whole sequence will be splitted to some search space.
     (3)foreach search space,based on the subSeqs,build many paths according to the veterbi algorithm.
     Every path is a solution for the problem,and the path with the best score will be choosed.
-    (4)save all the result satisfying the requirements:score(path) > score_cuttof
+    (4)save all the result satisfying the requirements:score(path) > score_cutoff
    */
 
-  auto result = std::make_unique<OUT>();
+  auto result = std::make_unique<out_result>();
   result->number=0;
 
   const int S2 = static_cast<int>(seq.size());
@@ -290,7 +293,7 @@ std::unique_ptr<OUT> HMM::scanSeqSingle(std::string_view seq){
             }
           }
 
-          if(tmp > cuttof*state[j].max && tmp > 0){
+          if(tmp > cutoff*state[j].max && tmp > 0){
             state_pos[number] = i;
             state_index[number] = j;
             state_score[number] = tmp;
@@ -369,7 +372,7 @@ std::unique_ptr<OUT> HMM::scanSeqSingle(std::string_view seq){
         }
       }
     }
-    if(score_search > score_cuttof){
+    if(score_search > score_cutoff){
       result->score[num] = score_search;
       result->start[num] = start_search;
       result->end[num] = end_search;
@@ -381,14 +384,14 @@ std::unique_ptr<OUT> HMM::scanSeqSingle(std::string_view seq){
   return result;
 }
 
-std::unique_ptr<OUT> HMM::scanSeqFull(std::string_view seq){
-  auto result = std::make_unique<OUT>();
+std::unique_ptr<out_result> hmm_model::scan_seq_full(std::string_view seq){
+  auto result = std::make_unique<out_result>();
   result->number=0;
 
-  auto result1 = scanSeqSingle(seq); //positive chain
+  auto result1 = scan_seq_single(seq); //positive chain
 
   string seq_complementary = metacsst::complementary(string(seq));
-  auto result2 = scanSeqSingle(seq_complementary);
+  auto result2 = scan_seq_single(seq_complementary);
 
   const int length = static_cast<int>(seq.size());
   int num=0;
@@ -412,10 +415,10 @@ std::unique_ptr<OUT> HMM::scanSeqFull(std::string_view seq){
   return result;
 }
 
-HMM buildHMM(const std::vector<std::string>& args){
+hmm_model build_hmm(const std::vector<std::string>& args){
   int L=0; //sequence length in the multiAlignment result
   float cov=0.9f; //coverage cuttof in every position to make a pattern box
-  int box_len_cuttof=7; //pattern box length cuttof
+  int box_len_cutoff=7; //pattern box length cutoff
   int max_box_length=0; //max length of the insured patterns
   int pattern_number=0; //pattern box number in total
   float state_score=0.4f; //cuttof of the score(ratio) used to ensure a state
@@ -423,7 +426,7 @@ HMM buildHMM(const std::vector<std::string>& args){
   int gap = 100; //gap between the states
   float ic = 0.5f; //IC value cuttof
 
-  HMM hmm;
+  hmm_model hmm;
 
   if(args.size() < 2){
     usage(args.empty() ? std::string("hmm") : args.front());
@@ -437,7 +440,7 @@ HMM buildHMM(const std::vector<std::string>& args){
       else if(arg_equals(args[static_cast<std::size_t>(i)],"-cov") && i+1<static_cast<int>(args.size()))
         cov = std::stof(args[static_cast<std::size_t>(i+1)]);
       else if (arg_equals(args[static_cast<std::size_t>(i)],"-len") && i+1<static_cast<int>(args.size()))
-        box_len_cuttof = std::stoi(args[static_cast<std::size_t>(i+1)]);
+        box_len_cutoff = std::stoi(args[static_cast<std::size_t>(i+1)]);
       else if (arg_equals(args[static_cast<std::size_t>(i)],"-score") && i+1<static_cast<int>(args.size()))
         state_score = std::stof(args[static_cast<std::size_t>(i+1)]);
       else if (arg_equals(args[static_cast<std::size_t>(i)],"-ratio") && i+1<static_cast<int>(args.size()))
@@ -605,7 +608,7 @@ HMM buildHMM(const std::vector<std::string>& args){
         if(judge(tmp) != -1){
           vector<int> pattern_index(pattern_number,-1);
           for(i=0,k=0;i<pattern_number;i++){
-            if(scan[i].length >= box_len_cuttof){
+            if(scan[i].length >= box_len_cutoff){
               float score_tmp=0.0f;
               string sub = metacsst::substr(tmp,scan[i].pos_start,scan[i].length);
               for(j=0;j<static_cast<int>(sub.length());j++)
@@ -662,7 +665,7 @@ HMM buildHMM(const std::vector<std::string>& args){
           int pri = -1; //the previous state
           float path_score=0.0f;
           for(i=0;i<pattern_number;i++){
-            if(scan[i].length >= box_len_cuttof){
+            if(scan[i].length >= box_len_cutoff){
               float score_tmp=0.0f;
               string sub = metacsst::substr(tmp,scan[i].pos_start,scan[i].length);
               for(j=0;j<static_cast<int>(sub.length());j++)
@@ -692,30 +695,32 @@ HMM buildHMM(const std::vector<std::string>& args){
 
       score_train.push_back(0.0f);
       float *score_train_ptr = score_train.data();
-      float score_cuttof=cuttof(&score_train_ptr,line,ratio);
+      float score_cutoff = cutoff(&score_train_ptr, line, ratio);
 
-      hmm = HMM(transition,scan,pattern_number,state_score,max_box_length,gap,box_len_cuttof,score_cuttof);
+      hmm = hmm_model(transition,scan,pattern_number,state_score,max_box_length,gap,box_len_cutoff,score_cutoff);
     }
   }
   return hmm;
 }
 
-class HMM_class { //clusters of GHMM model
+class hmm_class { //clusters of GHMM model
  public:
-  vector<HMM> hmm;
+  vector<hmm_model> hmm;
   //multi similar GHMM models,which belongs to different classes
   int _number; //number of clusters(models)
 
-  HMM_class(): _number(0) {}
-  explicit HMM_class(const string& config): _number(0) { init(config); }
+  hmm_class(): _number(0) {}
+  explicit hmm_class(const string& config): _number(0) { init(config); }
 
   void init(const string& config); //initialization,based on the config file
   void init_groups(const std::vector<metacsst::config::OrderedKeyValues>& motif_groups);
   void print(const std::string& dir);
-  std::unique_ptr<OUT> scanSeq(std::string_view seq); //scaning a new sequence
+  std::unique_ptr<out_result> scan_seq(std::string_view seq); //scaning a new sequence
+
+  std::unique_ptr<out_result> scanSeq(std::string_view seq) { return scan_seq(seq); }
 };
 
-void HMM_class::init_groups(const std::vector<metacsst::config::OrderedKeyValues>& motif_groups){
+void hmm_class::init_groups(const std::vector<metacsst::config::OrderedKeyValues>& motif_groups){
   vector<vector<string>> argv_groups;
   argv_groups.reserve(motif_groups.size());
   for (const auto& group : motif_groups) {
@@ -738,12 +743,12 @@ void HMM_class::init_groups(const std::vector<metacsst::config::OrderedKeyValues
   hmm.reserve(_number);
 
   for(int i=0;i<_number;i++){
-    hmm.push_back(buildHMM(argv_groups[i]));
+    hmm.push_back(build_hmm(argv_groups[i]));
   }
 }
 
 /*build class of HMM models according to the input config file*/
-void HMM_class::init(const string& config){
+void hmm_class::init(const string& config){
   try {
     const auto dgr_cfg = metacsst::config::parse_dgr_motif_groups(config);
     std::vector<metacsst::config::OrderedKeyValues> merged;
@@ -765,7 +770,7 @@ void HMM_class::init(const string& config){
   init_groups(motif_groups);
 }
 
-void HMM_class::print(const std::string& dir){
+void hmm_class::print(const std::string& dir){
   for(int i=0;i<_number;i++)
     hmm[i].print(dir);
 
@@ -780,7 +785,7 @@ void HMM_class::print(const std::string& dir){
 }
 
 /*scan the new sequences using the clusters of GHMMs*/
-std::unique_ptr<OUT> HMM_class::scanSeq(std::string_view seq){
+std::unique_ptr<out_result> hmm_class::scan_seq(std::string_view seq){
 
 /*WorkFlow:
 1>Every GHMM model is used to scan a new sequence,and reserve all the results
@@ -788,12 +793,12 @@ std::unique_ptr<OUT> HMM_class::scanSeq(std::string_view seq){
 3>putout the merged results
 */
 
-  std::vector<MatchState> matches;
+  std::vector<match_state> matches;
   matches.reserve(S);
 
   /*scaning for all the HMM models and reserve all the result_tmps*/
   for(int i=0;i<_number;i++){
-    auto result_tmp_sub = hmm[i].scanSeqFull(seq);
+    auto result_tmp_sub = hmm[i].scan_seq_full(seq);
 
     if(result_tmp_sub->number != 0)
       for(int j=0;j<result_tmp_sub->number;j++){
@@ -806,11 +811,11 @@ std::unique_ptr<OUT> HMM_class::scanSeq(std::string_view seq){
       }
   }
 
-  std::sort(matches.begin(), matches.end(), [](const MatchState& lhs, const MatchState& rhs) {
+  std::sort(matches.begin(), matches.end(), [](const match_state& lhs, const match_state& rhs) {
     return lhs.start < rhs.start;
   });
 
-  auto result = std::make_unique<OUT>();
+  auto result = std::make_unique<out_result>();
   result->number = 0;
 
   int pos = 0;
@@ -844,27 +849,29 @@ std::unique_ptr<OUT> HMM_class::scanSeq(std::string_view seq){
 
 //struct OUT *searchVR(char *seq,struct OUT **TR,int misMatch);
 
-class SCAN{ //main HMM model used to scan the unknown sequence
+class scan_model{ //main HMM model used to scan the unknown sequence
  private:
-  array<HMM_class,3> state; //three sub state:TR/VR/RT
+  array<hmm_class,3> state; //three sub state:TR/VR/RT
   int gap; //gap between sub HMMs
  public:
-  SCAN(): gap(0) {}
-  SCAN(const HMM_class& init_TR,const HMM_class& init_VR,const HMM_class& init_RT,int init_gap){
+  scan_model(): gap(0) {}
+  scan_model(const hmm_class& init_TR,const hmm_class& init_VR,const hmm_class& init_RT,int init_gap){
     init(init_TR,init_VR,init_RT,init_gap);
   }
 
-  void init(HMM_class init_TR,HMM_class init_VR,HMM_class init_RT,int init_gap);
+  void init(hmm_class init_TR,hmm_class init_VR,hmm_class init_RT,int init_gap);
   void print(const std::string& dir);
-  std::unique_ptr<OUT> scanSeq(std::string_view seq);
+  std::unique_ptr<out_result> scan_seq(std::string_view seq);
+
+  std::unique_ptr<out_result> scanSeq(std::string_view seq) { return scan_seq(seq); }
 };
 
-void SCAN::init(HMM_class init_TR,HMM_class init_VR,HMM_class init_RT,int init_gap){
+void scan_model::init(hmm_class init_TR,hmm_class init_VR,hmm_class init_RT,int init_gap){
   state[0]=init_TR;state[1]=init_VR;state[2]=init_RT;
   gap=init_gap;
 }
 
-void SCAN::print(const std::string& dir){
+void scan_model::print(const std::string& dir){
   for(int i=0;i<3;i++)
     state[i].print(dir);
 
@@ -880,8 +887,8 @@ void SCAN::print(const std::string& dir){
   2>split the whole space into some smaller search space according to the distribution of the gap length
   3>recall DGR structure for each search space
 */
-std::unique_ptr<OUT> SCAN::scanSeq(std::string_view seq){
-  auto result = std::make_unique<OUT>();
+std::unique_ptr<out_result> scan_model::scan_seq(std::string_view seq){
+  auto result = std::make_unique<out_result>();
   result->number = 0;result->index = 0;result->total_score = 0.0f;
   //the final result
 
@@ -890,15 +897,15 @@ std::unique_ptr<OUT> SCAN::scanSeq(std::string_view seq){
   Based on the test result, the scaning order is : TR->RT->VR
 */
 
-  std::array<std::unique_ptr<OUT>, 3> scan_sub;
+  std::array<std::unique_ptr<out_result>, 3> scan_sub;
 
-  scan_sub[0] = state[0].scanSeq(seq);
+  scan_sub[0] = state[0].scan_seq(seq);
   if(scan_sub[0]->number >0){ //scaning for TR firstly
-    scan_sub[2] = state[2].scanSeq(seq);
+    scan_sub[2] = state[2].scan_seq(seq);
 
     if(scan_sub[2]->number >0){ //scaning for RT secondly
 
-      scan_sub[1] = state[1].scanSeq(seq);
+      scan_sub[1] = state[1].scan_seq(seq);
       std::vector<int> start_sub;
       std::vector<int> end_sub;
       std::vector<int> type_sub;
@@ -1022,5 +1029,11 @@ std::unique_ptr<OUT> SCAN::scanSeq(std::string_view seq){
   }
   return result;
 }
+
+using MatchState = match_state;
+using OUT = out_result;
+using HMM = hmm_model;
+using HMM_class = hmm_class;
+using SCAN = scan_model;
 
 #endif

@@ -41,7 +41,7 @@ int main(int argc,char* argv[]){
   const std::string tmp = dir + "/tmp";
   const std::string out = dir + "/out.txt";
 
-  HMM_class hmm_class;
+  hmm_class hmm_class;
   try {
     hmm_class.init(options.config_path);
   } catch (const std::exception& ex) {

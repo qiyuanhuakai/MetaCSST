@@ -15,24 +15,24 @@
 
 namespace metacsst::mainscan {
 
-struct DGRModels {
-  HMM_class TR;
-  HMM_class VR;
-  HMM_class RT;
+struct dgr_models {
+  hmm_class TR;
+  hmm_class VR;
+  hmm_class RT;
 };
 
-inline DGRModels build_models_from_config(const std::string& config_path) {
+inline dgr_models build_models_from_config(const std::string& config_path) {
   const auto dgr_cfg = metacsst::config::parse_dgr_motif_groups(config_path);
-  DGRModels models;
+  dgr_models models;
   models.TR.init_groups(dgr_cfg.at("TR"));
   models.VR.init_groups(dgr_cfg.at("VR"));
   models.RT.init_groups(dgr_cfg.at("RT"));
   return models;
 }
 
-class MainScanStrategy : public metacsst::pipeline::ScanStrategy<SCAN> {
+class main_scan_strategy : public metacsst::pipeline::ScanStrategy<scan_model> {
  public:
-  using Context = metacsst::pipeline::StrategyContext<SCAN>;
+  using Context = metacsst::pipeline::StrategyContext<scan_model>;
 
   bool run_worker(Context& context) const override {
     std::ofstream out(context.output);
@@ -46,7 +46,7 @@ class MainScanStrategy : public metacsst::pipeline::ScanStrategy<SCAN> {
         context.search,
         false,
         [&](const std::string& name, const std::string& seq_str) {
-          auto result = context.model.scanSeq(seq_str);
+          auto result = context.model.scan_seq(seq_str);
 
           if (result->index == 1) {
             for (int i = 0; i < result->number; ++i) {
@@ -116,14 +116,18 @@ class MainScanStrategy : public metacsst::pipeline::ScanStrategy<SCAN> {
   }
 };
 
+using MainScanStrategy = main_scan_strategy;
+
 inline bool run_scan_pipeline(const std::string& search,
                               const std::string& output_path,
                               const std::string& tmp_dir,
                               int thread_count,
-                              const SCAN& scanner) {
-  const MainScanStrategy strategy;
+                              const scan_model& scanner) {
+  const main_scan_strategy strategy;
   return metacsst::pipeline::run_pipeline(search, output_path, tmp_dir, thread_count, scanner, strategy);
 }
+
+using DGRModels = dgr_models;
 
 }
 

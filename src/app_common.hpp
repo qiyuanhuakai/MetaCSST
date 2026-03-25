@@ -9,7 +9,7 @@
 
 namespace metacsst::app {
 
-struct CommonOptions {
+struct common_options {
   int threads = 1;
   std::string config_path;
   std::string input_path;
@@ -18,8 +18,10 @@ struct CommonOptions {
   bool parse_error = false;
 };
 
-inline CommonOptions parse_common_options(int argc, char* argv[], const std::string& default_output_dir) {
-  CommonOptions options;
+using CommonOptions = common_options;
+
+inline common_options parse_common_options(int argc, char* argv[], const std::string& default_output_dir) {
+  common_options options;
   options.output_dir = default_output_dir;
 
   for (int i = 1; i < argc; ++i) {
