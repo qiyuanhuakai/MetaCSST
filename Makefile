@@ -56,7 +56,7 @@ PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 DATADIR := $(PREFIX)/share/metacsst
 
-.PHONY: deps modern verify verify-json verify-toml verify-yaml verify-compressed verify-thread-consistency verify-sub-consistency install uninstall clean help example
+.PHONY: deps modern test verify verify-json verify-toml verify-yaml verify-compressed verify-thread-consistency verify-sub-consistency install uninstall clean help example
 
 
 deps: $(STAMP_DIR)/deps.ready
@@ -124,6 +124,11 @@ $(TARGET_SUB): $(SUB_SRC) $(HEADERS)
 
 verify: verify-json verify-toml verify-yaml verify-compressed verify-thread-consistency verify-sub-consistency
 	@echo "All verify pipelines passed."
+
+.NOTPARALLEL: verify verify-json verify-toml verify-yaml verify-compressed verify-thread-consistency verify-sub-consistency
+
+test: verify
+	@echo "test target is merged into verify (alias)."
 
 verify-json: modern
 	@echo "Running full test pipeline..."
