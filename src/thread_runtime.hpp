@@ -10,6 +10,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cstdio>
 
 #include "fun_modern.hpp"
 
@@ -86,6 +87,21 @@ inline bool run_split_workers(const std::string& search,
 }
 
 inline bool merge_files_to_output(const std::vector<std::string>& files, const std::string& output_path, bool append_mode) {
+  if (!files.empty()) {
+    const std::filesystem::path first_path(files.front());
+    const std::filesystem::path tmp_dir = first_path.parent_path();
+    const std::string first_name = first_path.filename().string();
+    if (!tmp_dir.empty() && first_name.rfind("out_tmp_", 0) == 0) {
+      std::string command = "cat " + tmp_dir.string() + "/out_tmp_*.txt";
+      if (!output_path.empty()) {
+        command += append_mode ? " >> " : " > ";
+        command += output_path;
+      }
+      const int status = std::system(command.c_str());
+      return status == 0;
+    }
+  }
+
   std::ofstream out;
   if (append_mode) {
     out.open(output_path, std::ios::app);
@@ -106,6 +122,24 @@ inline bool merge_files_to_output(const std::vector<std::string>& files, const s
 }
 
 inline bool merge_files_to_stream(const std::vector<std::string>& files, std::ostream& out) {
+  if (!files.empty()) {
+    const std::filesystem::path first_path(files.front());
+    const std::filesystem::path tmp_dir = first_path.parent_path();
+    const std::string first_name = first_path.filename().string();
+    if (!tmp_dir.empty() && first_name.rfind("out_tmp_", 0) == 0) {
+      const std::string command = "cat " + tmp_dir.string() + "/out_tmp_*.txt";
+      FILE* pipe = popen(command.c_str(), "r");
+      if (pipe != nullptr) {
+        char buffer[8192];
+        while (std::fgets(buffer, static_cast<int>(sizeof(buffer)), pipe) != nullptr) {
+          out << buffer;
+        }
+        const int status = pclose(pipe);
+        return status == 0;
+      }
+    }
+  }
+
   for (const auto& file : files) {
     std::ifstream in(file);
     if (in) {

@@ -261,68 +261,32 @@ inline float cuttof(float** score, int number, float ratio) {
  */
 inline int split(const std::string& file, int number, const std::string& dir) {
     int num = 0;
-    if (number == 1) return num;
-    
-    // Count lines in file
-    line_reader infile(file);
-    if (!infile.is_open()) {
-        std::cerr << "Error: Cannot open file " << file << std::endl;
-        return 0;
-    }
-    
-    int line = 0;
-    std::string tmp;
-    while (infile.getline(tmp)) {
-        line++;
-    }
-    
-    line /= 2;  // FASTA files have 2 lines per record
-    int per = line / number + 1;
-    num = line / per;
-    if (line % per != 0) {
-        num += 1;
-    }
-    
-    // Create output directory if it doesn't exist
-    std::filesystem::create_directories(dir);
-    
-    // Read file and split manually (no system() call)
-    line_reader split_reader(file);
-    if (!split_reader.is_open()) {
-        std::cerr << "Error: Cannot open file " << file << std::endl;
-        return 0;
-    }
+    if (number != 1) {
+        int line = 0;
+        line_reader fp(file);
+        if (!fp.is_open()) {
+            std::cerr << "Error: Cannot open file " << file << std::endl;
+            return 0;
+        }
 
-    int file_idx = 0;
-    int lines_written = 0;
-    int lines_per_file = per * 2;
-    
-    std::ofstream outfile;
-    auto open_new_file = [&]() {
-        std::ostringstream oss;
-        oss << dir << "/split_" << std::setw(2) << std::setfill('0') << file_idx;
-        outfile.open(oss.str());
-        if (!outfile) {
-            std::cerr << "Error: Cannot create output file " << oss.str() << std::endl;
+        std::string tmp;
+        while (fp.getline(tmp)) {
+            line++;
         }
-    };
-    
-    open_new_file();
-    
-    while (split_reader.getline(tmp)) {
-        outfile << tmp << '\n';
-        lines_written++;
-        
-        if (lines_written >= lines_per_file) {
-            outfile.close();
-            file_idx++;
-            lines_written = 0;
-            open_new_file();
+
+        line /= 2;
+        const int per = line / number + 1;
+        num = line / per;
+        if (line % per != 0) {
+            num += 1;
         }
+
+        std::filesystem::create_directories(dir);
+        const std::string command =
+            "split -l " + std::to_string(per * 2) + " " + file + " -d -a 2 " + dir + "/split_";
+        const int split_status = std::system(command.c_str());
+        (void)split_status;
     }
-    
-    outfile.close();
-    
     return num;
 }
 
@@ -336,14 +300,17 @@ inline std::string complementary(const std::string& s) {
     result.reserve(s.length());
 
     for (auto it = s.rbegin(); it != s.rend(); ++it) {
-        char c = std::toupper(*it);
-        switch (c) {
+        switch (*it) {
             case 'A': result.push_back('T'); break;
+            case 'a': result.push_back('T'); break;
             case 'T': result.push_back('A'); break;
+            case 't': result.push_back('A'); break;
             case 'C': result.push_back('G'); break;
+            case 'c': result.push_back('G'); break;
             case 'G': result.push_back('C'); break;
+            case 'g': result.push_back('C'); break;
             case 'N': result.push_back('N'); break;
-            default:  result.push_back(c); break;
+            default: break;
         }
     }
     return result;
