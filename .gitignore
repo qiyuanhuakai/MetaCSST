@@ -18,5 +18,10 @@ compile_commands.json
 .xmake/
 build/
 .claude/
+.sisyphus
+.gitnexus
 # local notes/reports
 report.md
+AGENTS.md
+CLAUDE.md
+

@@ -1,5 +1,5 @@
 set_project("MetaCSST")
-set_version("1.0.0")
+set_version("1.0.1")
 set_xmakever("2.8.7")
 
 add_rules("mode.debug", "mode.release")
