@@ -1,9 +1,8 @@
-#ifndef FUN_MODERN_H
-#define FUN_MODERN_H
+#ifndef FUN_MODERN_HPP
+#define FUN_MODERN_HPP
 
 #include <iostream>
 #include <fstream>
-#include <cstring>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -12,8 +11,102 @@
 #include <cstring>
 #include <sstream>
 #include <unordered_map>
+#include <zlib.h>
 
 namespace metacsst {
+
+inline bool has_gzip_extension(const std::string& path) {
+    return path.size() >= 3 && path.compare(path.size() - 3, 3, ".gz") == 0;
+}
+
+inline bool is_gzip_file(const std::string& path) {
+    if (has_gzip_extension(path)) {
+        return true;
+    }
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+
+    unsigned char magic[2] = {0, 0};
+    in.read(reinterpret_cast<char*>(magic), 2);
+    return in.gcount() == 2 && magic[0] == 0x1f && magic[1] == 0x8b;
+}
+
+class line_reader {
+public:
+    explicit line_reader(const std::string& path)
+        : gzip_mode_(is_gzip_file(path)) {
+        if (gzip_mode_) {
+            gz_file_ = gzopen(path.c_str(), "rb");
+        } else {
+            file_stream_.open(path);
+        }
+    }
+
+    ~line_reader() {
+        if (gz_file_ != nullptr) {
+            gzclose(gz_file_);
+        }
+    }
+
+    bool is_open() const {
+        return gzip_mode_ ? gz_file_ != nullptr : file_stream_.is_open();
+    }
+
+    bool getline(std::string& line) {
+        line.clear();
+        if (!gzip_mode_) {
+            return static_cast<bool>(std::getline(file_stream_, line));
+        }
+
+        return gzip_getline(line);
+    }
+
+private:
+    bool gzip_getline(std::string& line) {
+        if (gz_file_ == nullptr) {
+            return false;
+        }
+
+        constexpr int kBufferSize = 8192;
+        char buffer[kBufferSize];
+        bool has_data = false;
+
+        while (true) {
+            char* read_ptr = gzgets(gz_file_, buffer, kBufferSize);
+            if (read_ptr == nullptr) {
+                return has_data;
+            }
+
+            has_data = true;
+            const std::size_t len = std::strlen(buffer);
+            if (len == 0) {
+                if (gzeof(gz_file_)) {
+                    return has_data;
+                }
+                continue;
+            }
+
+            if (buffer[len - 1] == '\n') {
+                line.append(buffer, len - 1);
+                return true;
+            }
+
+            line.append(buffer, len);
+            if (gzeof(gz_file_)) {
+                return true;
+            }
+        }
+    }
+
+    bool gzip_mode_{false};
+    std::ifstream file_stream_;
+    gzFile gz_file_{nullptr};
+};
+
+using LineReader = line_reader;
 
 // Use namespace to avoid global pollution
 namespace constants {
@@ -129,7 +222,7 @@ inline void q_sort(float* score, int left, int right) {
  * @param ratio Ratio between 0 and 1
  * @return Cutoff value
  */
-inline float cuttof(const std::vector<float>& score, int number, float ratio) {
+inline float cutoff(const std::vector<float>& score, int number, float ratio) {
     std::vector<float> sorted(score.begin(), score.begin() + number);
     std::sort(sorted.begin(), sorted.end());
     int i = static_cast<int>(std::ceil((1 - ratio) * number));
@@ -144,11 +237,19 @@ inline float cuttof(const std::vector<float>& score, int number, float ratio) {
  * @param ratio Ratio between 0 and 1
  * @return Cutoff value
  */
-inline float cuttof(float** score, int number, float ratio) {
+inline float cutoff(float** score, int number, float ratio) {
     q_sort(*score, 0, number);
     int i = static_cast<int>(std::ceil((1 - ratio) * number));
     i = std::clamp(i, 0, number);
     return (*score)[i];
+}
+
+inline float cuttof(const std::vector<float>& score, int number, float ratio) {
+    return cutoff(score, number, ratio);
+}
+
+inline float cuttof(float** score, int number, float ratio) {
+    return cutoff(score, number, ratio);
 }
 
 /**
@@ -159,68 +260,33 @@ inline float cuttof(float** score, int number, float ratio) {
  * @return Number of split files created
  */
 inline int split(const std::string& file, int number, const std::string& dir) {
-    using namespace std::filesystem;
-    
     int num = 0;
-    if (number == 1) return num;
-    
-    // Count lines in file
-    std::ifstream infile(file);
-    if (!infile) {
-        std::cerr << "Error: Cannot open file " << file << std::endl;
-        return 0;
-    }
-    
-    int line = 0;
-    std::string tmp;
-    while (std::getline(infile, tmp)) {
-        line++;
-    }
-    infile.close();
-    
-    line /= 2;  // FASTA files have 2 lines per record
-    int per = line / number + 1;
-    num = line / per;
-    if (line % per != 0) {
-        num += 1;
-    }
-    
-    // Create output directory if it doesn't exist
-    create_directories(dir);
-    
-    // Read file and split manually (no system() call)
-    infile.open(file);
-    int file_idx = 0;
-    int lines_written = 0;
-    int lines_per_file = per * 2;
-    
-    std::ofstream outfile;
-    auto open_new_file = [&]() {
-        std::ostringstream oss;
-        oss << dir << "/split_" << std::setw(2) << std::setfill('0') << file_idx;
-        outfile.open(oss.str());
-        if (!outfile) {
-            std::cerr << "Error: Cannot create output file " << oss.str() << std::endl;
+    if (number != 1) {
+        int line = 0;
+        line_reader fp(file);
+        if (!fp.is_open()) {
+            std::cerr << "Error: Cannot open file " << file << std::endl;
+            return 0;
         }
-    };
-    
-    open_new_file();
-    
-    while (std::getline(infile, tmp)) {
-        outfile << tmp << '\n';
-        lines_written++;
-        
-        if (lines_written >= lines_per_file) {
-            outfile.close();
-            file_idx++;
-            lines_written = 0;
-            open_new_file();
+
+        std::string tmp;
+        while (fp.getline(tmp)) {
+            line++;
         }
+
+        line /= 2;
+        const int per = line / number + 1;
+        num = line / per;
+        if (line % per != 0) {
+            num += 1;
+        }
+
+        std::filesystem::create_directories(dir);
+        const std::string command =
+            "split -l " + std::to_string(per * 2) + " " + file + " -d -a 2 " + dir + "/split_";
+        const int split_status = std::system(command.c_str());
+        (void)split_status;
     }
-    
-    outfile.close();
-    infile.close();
-    
     return num;
 }
 
@@ -234,14 +300,17 @@ inline std::string complementary(const std::string& s) {
     result.reserve(s.length());
 
     for (auto it = s.rbegin(); it != s.rend(); ++it) {
-        char c = std::toupper(*it);
-        switch (c) {
+        switch (*it) {
             case 'A': result.push_back('T'); break;
+            case 'a': result.push_back('T'); break;
             case 'T': result.push_back('A'); break;
+            case 't': result.push_back('A'); break;
             case 'C': result.push_back('G'); break;
+            case 'c': result.push_back('G'); break;
             case 'G': result.push_back('C'); break;
+            case 'g': result.push_back('C'); break;
             case 'N': result.push_back('N'); break;
-            default:  result.push_back(c); break;
+            default: break;
         }
     }
     return result;
@@ -336,98 +405,13 @@ inline std::string arg_name(const std::string& name) {
  * @param arg Program name
  */
 inline void usage(const std::string& arg) {
-    std::cout << "Usage: " << arg << " -build arg.config [Options]\n\n"
+    std::cout << "Usage: " << arg << " -build config.json|config.toml|config.yaml|config.yml [Options]\n\n"
               << "Options\n\n"
               << "-build : Config file to build model\n"
               << "[-thread] : Number of threads, [int], default 1\n"
               << "[-in] : Fasta format file, in which patterns are searched, build a HMM only if not given, [string]\n"
-              << "[-out] : OUT Directory, [string], default 'sbcsst_out'\n"
+              << "[-out] : OUT Directory, [string], default 'out_metacsst'\n"
               << "[-h] : GHmmMotifScan User Manual\n";
-}
-
-// Legacy C-string overloads for backward compatibility during transition
-inline char* arg_name(char* name) {
-    static thread_local char buffer[20];
-    std::string result = arg_name(std::string(name));
-    std::strncpy(buffer, result.c_str(), sizeof(buffer) - 1);
-    buffer[sizeof(buffer) - 1] = '\0';
-    return buffer;
-}
-
-inline void usage(char* arg) {
-    usage(std::string(arg));
-}
-
-inline int judge(char* p) {
-    return judge(std::string(p));
-}
-
-inline char* chomp(char* s) {
-    std::string str(s);
-    chomp(str);
-    // Note: This modifies the original string in place
-    std::size_t len = str.length();
-    s[len] = '\0';
-    return s;
-}
-
-inline char* array_split(char* s, char sep, int col) {
-    static thread_local char buffer[constants::D];
-    std::string result = array_split(std::string(s), sep, col);
-    std::strncpy(buffer, result.c_str(), sizeof(buffer) - 1);
-    buffer[sizeof(buffer) - 1] = '\0';
-    return buffer;
-}
-
-inline char* complementary(char* s) {
-    static thread_local char buffer[constants::N];
-    std::string result = complementary(std::string(s));
-    std::strncpy(buffer, result.c_str(), sizeof(buffer) - 1);
-    buffer[sizeof(buffer) - 1] = '\0';
-    return buffer;
-}
-
-inline int count(char* s, char sep) {
-    return count(std::string(s), sep);
-}
-
-inline char* substr(char* s, int start, int num) {
-    static thread_local char buffer[constants::N];
-    std::string result = substr(std::string(s), start, num);
-    std::strncpy(buffer, result.c_str(), sizeof(buffer) - 1);
-    buffer[sizeof(buffer) - 1] = '\0';
-    return buffer;
-}
-
-inline int split(char* file, int number, char* dir) {
-    return split(std::string(file), number, std::string(dir));
-}
-
-// Swapping function for state arrays (used by q_sort_state)
-inline void swap_state(int start[], int end[], float score[], int str[], int m, int n) {
-    std::swap(start[m], start[n]);
-    std::swap(end[m], end[n]);
-    std::swap(str[m], str[n]);
-    std::swap(score[m], score[n]);
-}
-
-// Quick sort for state arrays
-inline void q_sort_state(int start[], int end[], float score[], int str[], int left, int right) {
-    if (left >= right) return;
-    
-    // Use middle element as pivot
-    swap_state(start, end, score, str, left, (left + right) / 2);
-    int last = left;
-    
-    for (int i = left + 1; i <= right; i++) {
-        if (start[i] < start[left]) {
-            swap_state(start, end, score, str, ++last, i);
-        }
-    }
-    
-    swap_state(start, end, score, str, left, last);
-    q_sort_state(start, end, score, str, left, last - 1);
-    q_sort_state(start, end, score, str, last + 1, right);
 }
 
 } // namespace metacsst
@@ -443,8 +427,13 @@ using metacsst::constants::D;
 using metacsst::substr;
 using metacsst::chomp;
 using metacsst::judge;
+using metacsst::has_gzip_extension;
+using metacsst::is_gzip_file;
+using metacsst::line_reader;
+using metacsst::LineReader;
 using metacsst::swap;
 using metacsst::q_sort;
+using metacsst::cutoff;
 using metacsst::cuttof;
 using metacsst::split;
 using metacsst::complementary;
@@ -454,7 +443,5 @@ using metacsst::tri_max;
 using metacsst::tri_min;
 using metacsst::arg_name;
 using metacsst::usage;
-using metacsst::swap_state;
-using metacsst::q_sort_state;
 
-#endif // FUN_MODERN_H
+#endif

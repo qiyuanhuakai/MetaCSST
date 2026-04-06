@@ -1,3 +1,27 @@
 .gitnexus
 test*
 __pycache__
+*.fxi
+MetaCSSTmain
+MetaCSSTsub
+
+
+# local caches and generated outputs
+.cache/
+.ruff_cache/
+test_output/
+src/third_party/
+
+# local tooling/workspace artifacts
+compile_commands.json
+.clangd
+.xmake/
+build/
+.claude/
+.sisyphus
+.gitnexus
+# local notes/reports
+report.md
+AGENTS.md
+CLAUDE.md
+
