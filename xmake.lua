@@ -14,7 +14,7 @@ add_requires("toml++ 3.4.0")
 add_requires("yaml-cpp 0.8.0")
 
 local src_dir = "src"
-local example_dir = "example"
+local example_dir = "test_baseline/example"
 local test_dir = "test_output"
 
 local function compare_cmd(test_file, expected_file, label)
@@ -299,4 +299,79 @@ task("example")
         print("     ./MetaCSSTsub -build config.json -in example/hv29.fa -out example/sub_out -thread 2")
         print("  5) Post-process raw output")
         print("     python3 src/call_vr.py example/run_out/raw.gtf example/hv29.fa example/final.gtf")
+    end)
+
+task("pack")
+    set_menu({
+        usage = "xmake pack",
+        description = "Build and package MetaCSST for distribution (handles config->align dependency chain)"
+    })
+    on_run(function ()
+        local dist_version = "1.0.1"
+        local dist_name = string.format("MetaCSST-%s-%s-%s", dist_version, os.host(), os.arch())
+        local dist_dir = path.join("dist", dist_name)
+        local bin_dir = path.join(dist_dir, "bin")
+        local config_dir = path.join(dist_dir, "config")
+        local align_dir = path.join(config_dir, "align")
+        local example_out_dir = path.join(dist_dir, "example")
+
+        os.execv("xmake", {"modern"})
+
+        os.execv("rm", {"-rf", dist_dir})
+        os.execv("mkdir", {"-p", bin_dir, config_dir, align_dir, example_out_dir})
+
+        os.execv("cp", {"MetaCSSTmain", bin_dir})
+        os.execv("cp", {"MetaCSSTsub", bin_dir})
+        os.execv("cp", {path.join(src_dir, "call_vr.py"), bin_dir})
+
+        os.execv("cp", {"config.json", config_dir})
+        os.execv("cp", {"config.toml", config_dir})
+        os.execv("cp", {"config.yaml", config_dir})
+
+        for _, file in ipairs(os.files("align/*.align")) do
+            os.execv("cp", {file, align_dir})
+        end
+
+        os.execv("cp", {"README", dist_dir})
+        os.execv("cp", {path.join(example_dir, "hv29.fa"), example_out_dir})
+        os.execv("cp", {path.join(example_dir, "out-DGR.gtf"), example_out_dir})
+
+        io.writefile(path.join(dist_dir, "requirements.txt"), "numpy\nnumba\npyfastx\n")
+
+        local tarball = dist_dir .. ".tar.gz"
+        os.execv("tar", {"-czf", tarball, "-C", "dist", dist_name})
+
+        print("\n========================================")
+        print("Packaged: " .. tarball)
+        print("========================================\n")
+        print("Distribution structure:")
+        print("  " .. dist_name .. "/")
+        print("  ├── bin/")
+        print("  │   ├── MetaCSSTmain")
+        print("  │   ├── MetaCSSTsub")
+        print("  │   └── call_vr.py")
+        print("  ├── config/")
+        print("  │   ├── config.json")
+        print("  │   ├── config.toml")
+        print("  │   ├── config.yaml")
+        print("  │   └── align/          <-- resolves config->align chain")
+        print("  │       └── *.align")
+        print("  ├── example/")
+        print("  │   ├── hv29.fa")
+        print("  │   └── out-DGR.gtf")
+        print("  ├── requirements.txt")
+        print("  └── README")
+        print("")
+        print("Usage after extraction:")
+        print("  ./" .. dist_name .. "/bin/MetaCSSTmain \\")
+        print("      -build ./" .. dist_name .. "/config/config.json \\")
+        print("      -in     ./" .. dist_name .. "/example/hv29.fa \\")
+        print("      -out    result \\")
+        print("      -thread 4")
+        print("")
+        print("  python3 ./" .. dist_name .. "/bin/call_vr.py \\")
+        print("      result/raw.gtf \\")
+        print("      ./" .. dist_name .. "/example/hv29.fa \\")
+        print("      result/final.gtf")
+        print("========================================")
     end)
