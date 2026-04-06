@@ -1,5 +1,6 @@
 .gitnexus
-test*
+test_baseline
+dist
 __pycache__
 *.fxi
 MetaCSSTmain
