@@ -3,10 +3,12 @@
 dist
 __pycache__
 *.fxi
-test_baseline
+
 MetaCSSTmain
 MetaCSSTsub
-
+test1
+test2
+test3
 
 # local caches and generated outputs
 .cache/
