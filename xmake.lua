@@ -168,10 +168,10 @@ task("verify-sub-consistency")
         os.execv("python3", {"-c", consistency_cmd(path.join(test_dir, "sub_t1", "out.txt"), path.join(test_dir, "sub_t2", "out.txt"), "SUB Thread Consistency")})
     end)
 
-task("test")
+task("verify")
     set_menu({
-        usage = "xmake test",
-        description = "Run all verification pipelines"
+        usage = "xmake verify",
+        description = "Run all integration verification pipelines (JSON, TOML, YAML, compressed, thread consistency)"
     })
     on_run(function ()
         os.execv("xmake", {"verify-json"})
@@ -180,7 +180,105 @@ task("test")
         os.execv("xmake", {"verify-compressed"})
         os.execv("xmake", {"verify-thread-consistency"})
         os.execv("xmake", {"verify-sub-consistency"})
-        print("All verify pipelines passed.")
+        print("All integration verify pipelines passed.")
+    end)
+
+target("test_config")
+    set_kind("binary")
+    set_targetdir("test")
+    set_basename("test_config")
+    add_files("test/test_config.cpp")
+    add_includedirs(src_dir)
+    add_packages("nlohmann_json", "toml++", "yaml-cpp")
+    add_cxflags("-O2", "-Wall", "-Wextra", "-pthread")
+    if is_plat("linux") then
+        add_syslinks("pthread", "z")
+    end
+
+target("test_fun")
+    set_kind("binary")
+    set_targetdir("test")
+    set_basename("test_fun")
+    add_files("test/test_fun.cpp")
+    add_includedirs(src_dir)
+    add_packages("nlohmann_json", "toml++", "yaml-cpp")
+    add_cxflags("-O2", "-Wall", "-Wextra", "-pthread")
+    if is_plat("linux") then
+        add_syslinks("pthread", "z")
+    end
+
+target("test_fasta")
+    set_kind("binary")
+    set_targetdir("test")
+    set_basename("test_fasta")
+    add_files("test/test_fasta.cpp")
+    add_includedirs(src_dir)
+    add_packages("nlohmann_json", "toml++", "yaml-cpp")
+    add_cxflags("-O2", "-Wall", "-Wextra", "-pthread")
+    if is_plat("linux") then
+        add_syslinks("pthread", "z")
+    end
+
+target("test_common")
+    set_kind("binary")
+    set_targetdir("test")
+    set_basename("test_common")
+    add_files("test/test_common.cpp")
+    add_includedirs(src_dir)
+    add_packages("nlohmann_json", "toml++", "yaml-cpp")
+    add_cxflags("-O2", "-Wall", "-Wextra", "-pthread")
+    if is_plat("linux") then
+        add_syslinks("pthread", "z")
+    end
+
+task("test")
+    set_menu({
+        usage = "xmake test",
+        description = "Build and run all unit tests from test/ directory"
+    })
+    on_run(function ()
+        os.execv("xmake", {"build", "test_config"})
+        os.execv("xmake", {"build", "test_fun"})
+        os.execv("xmake", {"build", "test_fasta"})
+        os.execv("xmake", {"build", "test_common"})
+
+        print("\n========================================")
+        print("Running Unit Tests")
+        print("========================================\n")
+
+        local test_dir = "test"
+        local has_failure = false
+        
+        local tests = {"test_config", "test_fun", "test_fasta", "test_common"}
+        for _, test_name in ipairs(tests) do
+            print("\n>>> Running " .. test_name .. "...")
+            local ok = try {
+                function ()
+                    os.execv(path.join(test_dir, test_name))
+                    return true
+                end,
+                catch {
+                    function (errors)
+                        return false
+                    end
+                }
+            }
+            if not ok then
+                has_failure = true
+                print("FAILED: " .. test_name)
+            end
+        end
+        
+        if has_failure then
+            print("\n========================================")
+            print("SOME UNIT TESTS FAILED")
+            print("========================================")
+            os.exit(1)
+        else
+            print("\n========================================")
+            print("All unit tests passed!")
+            print("========================================")
+        end
     end)
 
 
