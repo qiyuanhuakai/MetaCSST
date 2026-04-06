@@ -14,7 +14,7 @@ add_requires("toml++ 3.4.0")
 add_requires("yaml-cpp 0.8.0")
 
 local src_dir = "src"
-local example_dir = "example"
+local example_dir = "test_baseline/example"
 local test_dir = "test_output"
 
 local function compare_cmd(test_file, expected_file, label)
