@@ -32,6 +32,16 @@ using std::string;
 using std::to_string;
 using std::vector;
 
+//=============================================================================================
+// Data structures for GHMM (Generalized Hidden Markov Model)
+//=============================================================================================
+
+/**
+ * @brief Pattern box derived from multiple sequence alignment.
+ *
+ * Represents a conserved motif region. Stores the position-specific
+ * scoring matrix (PSSM) and alignment counts for A/T/C/G.
+ */
 struct pattern {
   int length; //pattern box length
   vector<int> sum; //the sum of A,T,C,G appearance time in every position
@@ -43,6 +53,12 @@ struct pattern {
   int pos_end; //end position pf the pattern box in the training set
 };
 
+/**
+ * @brief HMM state box.
+ *
+ * Each box corresponds to one state in the GHMM and is represented by
+ * a PSSM derived from the training alignment.
+ */
 struct box { //every box is a state in the Hidden Markov Model
   int length; //state matrix length
   int pos_start; //start position of the pattern box in the training set sequence
@@ -52,6 +68,9 @@ struct box { //every box is a state in the Hidden Markov Model
   vector<vector<float>> score; //scoring matrix of the state box
 };
 
+/**
+ * @brief Single match state returned by a GHMM scan.
+ */
 struct match_state {
   int start;
   int end;
@@ -59,6 +78,12 @@ struct match_state {
   int strand;
 };
 
+/**
+ * @brief Sub-structure match identified by a single HMM.
+ *
+ * Used for TR (Template Repeat), VR (Variable Repeat) or RT
+ * (Reverse Transcriptase) motifs.
+ */
 struct sub_hmm { //sub HMM strctures ,such as TR/VR/RT
   int start; //start site of the sub HMM in the input sequence
   int end; //end site
@@ -66,6 +91,12 @@ struct sub_hmm { //sub HMM strctures ,such as TR/VR/RT
   int index; //index=-1 -> init;  index=0->TR;  index=1->VR  index=2->RT;
 };
 
+/**
+ * @brief Container for scanning results.
+ *
+ * Holds either sub-HMM matches (TR/VR/RT) or a complete DGR
+ * (Diversity-Generating Retroelement) detection result.
+ */
 struct out_result { //scaning result,for sub HMM(TR/VR/RT) or the total DGR
   int number; //matchSeq number
   std::array<float, S> score{}; //score of the matches
@@ -79,6 +110,12 @@ struct out_result { //scaning result,for sub HMM(TR/VR/RT) or the total DGR
   float total_score; //used only for scaning for DGR
   int index; //used only for DGR;0->no hot,1->DGR in found
 };
+
+//=============================================================================================
+// Single GHMM model (hmm_model)
+//   - Initializes from training alignment
+//   - Scans sequences using the Viterbi algorithm on PSSM states
+//=============================================================================================
 
 class hmm_model{
  private:
@@ -177,6 +214,12 @@ void hmm_model::init(const vector<vector<float>>& transition,
   }
 }
 
+/**
+ * @brief Persist the trained model matrices to disk.
+ *
+ * Writes alignment matrices to "align.txt" and scoring / transition
+ * probabilities to "score.txt" under the given directory.
+ */
 void hmm_model::print(const std::string& dir){
 
   const auto align_path = std::filesystem::path(dir) / "align.txt";
@@ -247,6 +290,18 @@ void hmm_model::print(const std::string& dir){
 }
 
 
+/**
+ * @brief Scan a single DNA strand for motif matches using the Viterbi algorithm.
+ *
+ * Workflow:
+ *   1) Slide a window across the sequence and score each sub-sequence
+ *      against every state PSSM. Record high-scoring motif hits.
+ *   2) Split the hit list into independent search spaces whenever the
+ *      distance between consecutive hits exceeds @c gap.
+ *   3) Inside each search space, apply the Viterbi algorithm to find the
+ *      maximum-likelihood path through the GHMM states.
+ *   4) Emit all paths whose total score exceeds @c score_cutoff.
+ */
 std::unique_ptr<out_result> hmm_model::scan_seq_single(std::string_view seq){
   /*workflow of scaning for TR,VR or RT:
     (1)foreach sub state,set down the matching subSeqs(position as well as score).
@@ -270,6 +325,9 @@ std::unique_ptr<out_result> hmm_model::scan_seq_single(std::string_view seq){
     if there is a sequence matched,then skip length will be the length of this motif rather then 1.This methos is able to accelerate the process,but may miss the best match in the mean while,which reduces the whole score,leading to a wrong result.
   */
 
+  //-------------------------------------------------------------------------------------------
+  // Stage 1: Motif scanning - score every window against each state's PSSM.
+  //-------------------------------------------------------------------------------------------
   if(S2 > window){
     for(int i=0;i<S2-window-1;){ //scan the sequence for every stat,set down the position as well as matching score
       int index=0;
@@ -314,6 +372,9 @@ std::unique_ptr<out_result> hmm_model::scan_seq_single(std::string_view seq){
   vector<int> search_start(S2,-1);
   vector<int> search_end(S2,-1);
 
+  //-------------------------------------------------------------------------------------------
+  // Stage 2: Divide hits into independent search spaces using the gap threshold.
+  //-------------------------------------------------------------------------------------------
   int search_number=0; //according to the gap length,devide the total search space to some small search space
   for(int i=0;i<number;i++){
     if(i==0)
@@ -334,6 +395,9 @@ std::unique_ptr<out_result> hmm_model::scan_seq_single(std::string_view seq){
   vector<float> veterbi_score(number,0.0f); //score of the possible path using veterbi algorithm
   vector<int> veterbi_start(number,-1); //matching start of the veterbi path
 
+  //-------------------------------------------------------------------------------------------
+  // Stage 3 & 4: Viterbi dynamic programming per search space + emit results.
+  //-------------------------------------------------------------------------------------------
   int num=0; //number of matchSeqs in all the search space
   for(int k=0;k<search_number;k++){
     for(int i=search_start[k];i <= search_end[k];i++){
@@ -384,6 +448,12 @@ std::unique_ptr<out_result> hmm_model::scan_seq_single(std::string_view seq){
   return result;
 }
 
+/**
+ * @brief Scan both DNA strands (positive + reverse complement).
+ *
+ * Coordinates on the reverse strand are converted back to the
+ * original (positive) orientation before merging.
+ */
 std::unique_ptr<out_result> hmm_model::scan_seq_full(std::string_view seq){
   auto result = std::make_unique<out_result>();
   result->number=0;
@@ -415,6 +485,21 @@ std::unique_ptr<out_result> hmm_model::scan_seq_full(std::string_view seq){
   return result;
 }
 
+//=============================================================================================
+// HMM builder from multiple alignment file
+//=============================================================================================
+
+/**
+ * @brief Build a single GHMM from a training alignment file.
+ *
+ * Steps:
+ *   1) Parse CLI arguments (coverage, length, score ratio, gap, etc.).
+ *   2) Read the aligned sequences and compute per-position counts of A/T/C/G.
+ *   3) Derive the Position-Specific Scoring Matrix (PSSM) and Information Content.
+ *   4) Extract conserved pattern boxes using the coverage cutoff.
+ *   5) Count state transitions in the training set and build the transition matrix.
+ *   6) Compute an empirical score cutoff from the training sequences.
+ */
 hmm_model build_hmm(const std::vector<std::string>& args){
   int L=0; //sequence length in the multiAlignment result
   float cov=0.9f; //coverage cuttof in every position to make a pattern box
@@ -482,6 +567,9 @@ hmm_model build_hmm(const std::vector<std::string>& args){
       if(!in.is_open())
         return hmm;
 
+      //---------------------------------------------------------------------------------------
+      // Build the alignment count matrix and background prior probabilities.
+      //---------------------------------------------------------------------------------------
       vector<vector<int>> count(4,vector<int>(L,0)); //align metrix,store the appearance times of A,T,C,G in every position
       vector<float> priori(4,0.0f); //priori probability of the background
       vector<int> pri_tmp(4,0); //a buffer to store the appearance times of A,T,C,G,used to calculate the  priori probability
@@ -520,6 +608,9 @@ hmm_model build_hmm(const std::vector<std::string>& args){
       for(j=0;j<4;j++)
         priori[j] = pri_tmp[j]*1.0f/sum_pri;
 
+      //---------------------------------------------------------------------------------------
+      // Compute Position-Specific Scoring Matrix (PSSM) and Information Content.
+      //---------------------------------------------------------------------------------------
       vector<vector<float>> score(5,vector<float>(L,0.0f)); //Positon Specific Scoring Metrix,including the positon coverage(score[0])
       for(i=0;i<L;i++){
         score[0][i]=sum[i]*1.0f/number; //calculate position coverage
@@ -536,6 +627,9 @@ hmm_model build_hmm(const std::vector<std::string>& args){
           else
             score[i+1][j] = static_cast<float>(log(count[i][j]/(priori[i]*sum[j]))*sum[j]/number); //formula to calculate the score of every position
 
+      //---------------------------------------------------------------------------------------
+      // Extract conserved pattern boxes based on the coverage threshold.
+      //---------------------------------------------------------------------------------------
       vector<pattern> scan(M);  //store some subPattern in the whole scoring matrix
       for(std::size_t scan_idx = 0; scan_idx < scan.size(); ++scan_idx){
         scan[scan_idx].length=0;
@@ -592,6 +686,9 @@ hmm_model build_hmm(const std::vector<std::string>& args){
         }
       }
 
+      //---------------------------------------------------------------------------------------
+      // Build the state transition probability matrix from the training sequences.
+      //---------------------------------------------------------------------------------------
 /* buildTransition */
       int num=pattern_number+2; //state number:pattern_number+2(start+patterns+end)
       vector<vector<int>> trans_count(num,vector<int>(num,0)); //state transition frequency(times) in the training set
@@ -649,6 +746,9 @@ hmm_model build_hmm(const std::vector<std::string>& args){
       in.close();
 /* BuildTransition End */
 
+      //---------------------------------------------------------------------------------------
+      // Derive a score cutoff from the training set match scores.
+      //---------------------------------------------------------------------------------------
 /*Get the score cottof for a HMM matching according to the training set */
       int line = 0;
       vector<float> score_train;
@@ -703,6 +803,11 @@ hmm_model build_hmm(const std::vector<std::string>& args){
   return hmm;
 }
 
+//=============================================================================================
+// HMM class (hmm_class)
+//   - Manages a cluster of hmm_model instances belonging to the same motif class
+//=============================================================================================
+
 class hmm_class { //clusters of GHMM model
  public:
   vector<hmm_model> hmm;
@@ -720,6 +825,12 @@ class hmm_class { //clusters of GHMM model
   std::unique_ptr<out_result> scanSeq(std::string_view seq) { return scan_seq(seq); }
 };
 
+/**
+ * @brief Initialize from a list of motif groups.
+ *
+ * Each group supplies command-line-style arguments that are forwarded
+ * to build_hmm() to construct individual hmm_model instances.
+ */
 void hmm_class::init_groups(const std::vector<metacsst::config::OrderedKeyValues>& motif_groups){
   vector<vector<string>> argv_groups;
   argv_groups.reserve(motif_groups.size());
@@ -784,7 +895,15 @@ void hmm_class::print(const std::string& dir){
     fp2 << "######################################################\n";
 }
 
-/*scan the new sequences using the clusters of GHMMs*/
+/**
+ * @brief Scan a sequence using all clustered GHMMs and merge overlapping hits.
+ *
+ * Workflow:
+ *   1) Run every hmm_model on the target sequence.
+ *   2) Collect all match_state hits and sort by start coordinate.
+ *   3) Merge overlapping matches on the same strand (scores are summed).
+ *   4) Return the unified result set.
+ */
 std::unique_ptr<out_result> hmm_class::scan_seq(std::string_view seq){
 
 /*WorkFlow:
@@ -849,6 +968,11 @@ std::unique_ptr<out_result> hmm_class::scan_seq(std::string_view seq){
 
 //struct OUT *searchVR(char *seq,struct OUT **TR,int misMatch);
 
+//=============================================================================================
+// Full DGR scanning model (scan_model)
+//   - Combines three hmm_class instances (TR, VR, RT) to detect complete DGRs
+//=============================================================================================
+
 class scan_model{ //main HMM model used to scan the unknown sequence
  private:
   array<hmm_class,3> state; //three sub state:TR/VR/RT
@@ -882,11 +1006,18 @@ void scan_model::print(const std::string& dir){
   }
 }
 
-/*Workflow for scan the whole DGR:
-  1>the sub structures(TR,VR and RT) are found using Motif-GHMM method
-  2>split the whole space into some smaller search space according to the distribution of the gap length
-  3>recall DGR structure for each search space
-*/
+/**
+ * @brief Detect complete Diversity-Generating Retroelements (DGRs).
+ *
+ * Workflow:
+ *   1) Scan for TR (Template Repeat).
+ *   2) If TR hits exist, scan for RT (Reverse Transcriptase).
+ *   3) If RT hits exist, scan for VR (Variable Repeat).
+ *   4) Collect and sort all sub-hits by genomic coordinate.
+ *   5) Group hits into search spaces separated by gaps larger than @c gap.
+ *   6) Verify that each search space contains at least TR + VR
+ *      (type product divisible by 10, since 2*5=10). Mark index=1 when found.
+ */
 std::unique_ptr<out_result> scan_model::scan_seq(std::string_view seq){
   auto result = std::make_unique<out_result>();
   result->number = 0;result->index = 0;result->total_score = 0.0f;
@@ -1029,6 +1160,10 @@ std::unique_ptr<out_result> scan_model::scan_seq(std::string_view seq){
   }
   return result;
 }
+
+//=============================================================================================
+// Backward-compatible type aliases
+//=============================================================================================
 
 using MatchState = match_state;
 using OUT = out_result;
