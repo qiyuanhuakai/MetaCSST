@@ -24,6 +24,7 @@ build/
 .claude/
 .sisyphus
 .gitnexus
+.zread
 # local notes/reports
 report.md
 AGENTS.md
